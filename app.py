@@ -64,8 +64,6 @@ filtered_df = df[df["report_period"] == selected_period].copy()
 
 # Parse JSONB string if necessary
 filtered_df["parsed"] = filtered_df["data"].apply(lambda x: json.loads(x) if isinstance(x, str) else x)
-st.write("📄 Sample parsed record:", filtered_df["parsed"].iloc[0])
-
 
 # Extract fields
 filtered_df["total_assets"] = filtered_df["parsed"].apply(lambda x: extract_field(x, "bhck2170"))
