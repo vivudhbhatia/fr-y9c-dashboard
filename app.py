@@ -15,7 +15,7 @@ HEADERS = {
 
 @st.cache_data(ttl=300)
 def fetch_data():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&limit=10000"
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&report_period=eq.{selected_period}&limit=2000"
     r = requests.get(url, headers=HEADERS)
 
     if r.status_code != 200:
