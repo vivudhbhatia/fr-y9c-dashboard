@@ -1,8 +1,9 @@
 import streamlit as st
 import requests
 import pandas as pd
+import json
 
-# Load Supabase secrets from .streamlit/secrets.toml or Streamlit Cloud
+# Load Supabase secrets
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
@@ -40,13 +41,13 @@ def fetch_data():
         st.error(f"❌ Error parsing Supabase response: {e}")
         return pd.DataFrame()
 
-def extract_field(row, field):
+def extract_field(data, field):
     try:
-        return float(row.get("data", {}).get(field, None))
+        return float(data.get(field, None))
     except:
         return None
 
-# Streamlit App UI
+# Streamlit UI
 st.set_page_config(page_title="FR Y-9C Dashboard", layout="wide")
 st.title("📊 FR Y-9C Bank Dashboard")
 
@@ -61,18 +62,21 @@ selected_period = st.sidebar.selectbox("Select a Reporting Period", report_perio
 
 filtered_df = df[df["report_period"] == selected_period].copy()
 
-# Extract key financials
-filtered_df["total_assets"] = filtered_df["data"].apply(lambda x: extract_field(x, "bhck2170"))
-filtered_df["net_income"] = filtered_df["data"].apply(lambda x: extract_field(x, "bhck4340"))
-filtered_df["tier1_ratio"] = filtered_df["data"].apply(lambda x: extract_field(x, "bhck8274"))
+# Parse JSONB string if necessary
+filtered_df["parsed"] = filtered_df["data"].apply(lambda x: json.loads(x) if isinstance(x, str) else x)
 
-# KPI Summary Cards
+# Extract fields
+filtered_df["total_assets"] = filtered_df["parsed"].apply(lambda x: extract_field(x, "bhck2170"))
+filtered_df["net_income"] = filtered_df["parsed"].apply(lambda x: extract_field(x, "bhck4340"))
+filtered_df["tier1_ratio"] = filtered_df["parsed"].apply(lambda x: extract_field(x, "bhck8274"))
+
+# KPI Cards
 col1, col2, col3 = st.columns(3)
 col1.metric("📦 Avg Total Assets", f"${filtered_df['total_assets'].mean():,.0f}")
 col2.metric("💰 Avg Net Income", f"${filtered_df['net_income'].mean():,.0f}")
 col3.metric("🏛 Avg Tier 1 Ratio", f"{filtered_df['tier1_ratio'].mean():.2f}%")
 
-# Full Table
+# Display table
 st.subheader(f"📋 Institutions Reporting - {selected_period}")
 st.dataframe(
     filtered_df[["rssd_id", "total_assets", "net_income", "tier1_ratio"]]
