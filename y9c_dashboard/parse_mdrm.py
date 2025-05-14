@@ -1,29 +1,36 @@
 import pandas as pd
+import requests
 from datetime import datetime
+import os
 
 def load_mnemonic_mapping():
-    df = pd.read_csv("y9c_dashboard/MDRM/MDRM_CSV.csv", encoding="latin1")
+    SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY") or st.secrets["SUPABASE_KEY"]
 
-    # Normalize column names (remove whitespace)
-    df.columns = df.columns.str.strip()
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}"
+    }
 
-    # Ensure datetime parsing for end dates
-    df["End Date"] = pd.to_datetime(df["End Date"], errors="coerce")
-    df["Start Date"] = pd.to_datetime(df["Start Date"], errors="coerce")
+    # Query entire mdrm_mapping table
+    url = f"{SUPABASE_URL}/rest/v1/mdrm_mapping?select=*"
 
-    # Keep only FR Y-9C entries
-    df = df[df["Reporting Form"].str.contains("FR Y-9C", na=False)]
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        raise Exception(f"❌ Failed to load MDRM data: {response.text}")
+    
+    df = pd.DataFrame(response.json())
+    if df.empty:
+        raise ValueError("⚠️ Supabase table 'mdrm_mapping' returned no rows.")
 
-    # Filter to only items still active
-    df = df[df["End Date"] >= datetime.today()]
+    # Parse and clean
+    df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
+    df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
 
-    # Sort to get the most recent start date for each mnemonic+code combo
-    df["key"] = df["Mnemonic"].str.upper() + df["Item Code"].astype(str)
-    df = df.sort_values(by="Start Date", ascending=False)
+    df = df[df["reporting_form"].str.contains("FR Y-9C", na=False)]
+    df = df[df["end_date"].isna() | (df["end_date"] >= datetime.today())]
+    df["key"] = df["mnemonic"].str.upper() + df["item_code"].astype(str)
+    df = df.sort_values(by="start_date", ascending=False)
+    df = df.drop_duplicates(subset="key", keep="first")
 
-    # Drop duplicates to retain most recent description
-    latest = df.drop_duplicates(subset="key", keep="first")
-
-    # Build the dictionary
-    mapping = {row["key"]: row["Item Name"].strip() for _, row in latest.iterrows()}
-    return mapping
+    return {row["key"]: row["item_name"].strip() for _, row in df.iterrows()}
