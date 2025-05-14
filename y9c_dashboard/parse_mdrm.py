@@ -2,6 +2,7 @@ import pandas as pd
 import requests
 from datetime import datetime
 import os
+import streamlit as st
 
 def load_mnemonic_mapping():
     SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets["SUPABASE_URL"]
