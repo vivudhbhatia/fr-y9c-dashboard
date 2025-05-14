@@ -5,8 +5,12 @@ import os
 import streamlit as st
 
 def load_mnemonic_mapping():
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY")
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise EnvironmentError("❌ Supabase environment variables are not set.")
+
 
     headers = {
         "apikey": SUPABASE_KEY,
@@ -19,7 +23,7 @@ def load_mnemonic_mapping():
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
         raise Exception(f"❌ Failed to load MDRM data: {response.text}")
-    
+
     df = pd.DataFrame(response.json())
     if df.empty:
         raise ValueError("⚠️ Supabase table 'mdrm_mapping' returned no rows.")
