@@ -1,27 +1,29 @@
 import pandas as pd
+from datetime import datetime
 
 def load_mnemonic_mapping():
-    df = pd.read_csv("MDRM/MDRM_CSV.csv", encoding="latin1")
+    df = pd.read_csv("y9c_dashboard/MDRM/MDRM_CSV.csv", encoding="latin1")
 
-    # Strip all column names and remove newline/whitespace
+    # Normalize column names (remove whitespace)
     df.columns = df.columns.str.strip()
 
-    # Optional: Show columns if debugging
-    # print("Columns:", df.columns.tolist())
+    # Ensure datetime parsing for end dates
+    df["End Date"] = pd.to_datetime(df["End Date"], errors="coerce")
+    df["Start Date"] = pd.to_datetime(df["Start Date"], errors="coerce")
 
-    # Clean values in key fields
-    df["Mnemonic"] = df["Mnemonic"].str.strip()
-    df["Item Code"] = df["Item Code"].astype(str).str.strip()
-    df["Item Name"] = df["Item Name"].fillna("").str.strip()
+    # Keep only FR Y-9C entries
+    df = df[df["Reporting Form"].str.contains("FR Y-9C", na=False)]
 
-    # Build full mnemonic code like 'BHCK2170'
-    df["full_mnemonic"] = df["Mnemonic"] + df["Item Code"]
+    # Filter to only items still active
+    df = df[df["End Date"] >= datetime.today()]
 
-    # Use Item Name for display, fallback to Item Code
-    df["clean_label"] = df["Item Name"]
-    df.loc[df["clean_label"] == "", "clean_label"] = df["full_mnemonic"]
+    # Sort to get the most recent start date for each mnemonic+code combo
+    df["key"] = df["Mnemonic"].str.upper() + df["Item Code"].astype(str)
+    df = df.sort_values(by="Start Date", ascending=False)
 
-    # Create final mapping dictionary
-    mapping = pd.Series(df["clean_label"].values, index=df["full_mnemonic"]).to_dict()
+    # Drop duplicates to retain most recent description
+    latest = df.drop_duplicates(subset="key", keep="first")
 
+    # Build the dictionary
+    mapping = {row["key"]: row["Item Name"].strip() for _, row in latest.iterrows()}
     return mapping
