@@ -44,7 +44,7 @@ def extract_field(data, field):
 def safe_parse_json(x):
     try:
         return json.loads(x) if isinstance(x, str) else (x if isinstance(x, dict) else {})
-    except Exception:
+    except Exception as e:
         return {}
 
 def infer_total_assets(x):
@@ -105,7 +105,6 @@ if st.button("🔄 Reload Data"):
     st.cache_data.clear()
     st.rerun()
 
-
 periods = get_periods()
 if not periods:
     st.stop()
@@ -128,7 +127,7 @@ if df["total_assets"].isnull().all():
         st.cache_data.clear()
         st.rerun()
     else:
-        st.warning("⚠️ No 'total_assets' data available after reload.")
+        st.warning("⚠️ No 'total_assets' data available after reload. Please check the Supabase field mapping.")
         st.stop()
 
 # Success
