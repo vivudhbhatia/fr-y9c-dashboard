@@ -1,4 +1,4 @@
-
+# app.py
 import streamlit as st
 import requests
 import pandas as pd
@@ -8,6 +8,7 @@ import os
 import plotly.express as px
 from urllib.parse import quote
 
+# ─── CONFIGURATION ───
 st.set_page_config(page_title="FR Y-9C Dashboard", layout="wide")
 st.title("📊 FR Y-9C Bank Dashboard")
 
@@ -34,6 +35,7 @@ except Exception as e:
     mnemonic_mapping = {}
     reverse_mapping = {}
 
+# ─── HELPER FUNCTIONS ───
 def extract_field(data, field):
     try:
         return float(data.get(field, None))
@@ -43,7 +45,7 @@ def extract_field(data, field):
 def safe_parse_json(x):
     try:
         return json.loads(x) if isinstance(x, str) else (x if isinstance(x, dict) else {})
-    except Exception:
+    except Exception as e:
         return {}
 
 def infer_total_assets(x):
@@ -100,6 +102,7 @@ def fetch_data(period):
     df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
     return df
 
+# ─── USER INPUT ───
 if st.button("🔄 Reload Data"):
     st.cache_data.clear()
     st.rerun()
@@ -125,10 +128,13 @@ selected_bucket = st.selectbox("Select Asset Bucket (optional)", ["All"] + bucke
 if selected_bucket != "All":
     full_df = full_df[full_df["asset_bucket"] == selected_bucket]
 
+# ─── LANDING PAGE ───
 st.subheader("🏦 Bank Summary")
 st.dataframe(full_df[["rssd_id", "bank_name", "total_assets"]].sort_values("total_assets", ascending=False))
 
+# ─── COMPARISON CHART ───
 st.subheader("📈 Compare Banks on Selected Mnemonic")
+
 mnemonic_keys = list(mnemonic_mapping.keys())
 selected_mnemonic = st.selectbox("Select Mnemonic to Compare", mnemonic_keys)
 
