@@ -23,21 +23,21 @@ def load_mnemonic_mapping():
         raise Exception(f"❌ Failed to load MDRM data: {response.text}")
 
     df = pd.DataFrame(response.json())
-
     if df.empty:
         raise ValueError("⚠️ MDRM table in Supabase is empty.")
 
-    # Normalize column names
+    # Normalize columns
     df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
 
-    # Date parsing
-    df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
-    df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
+    # Parse date strings
+    df["start_date"] = pd.to_datetime(df["start_date"].astype(str), errors="coerce")
+    df["end_date"] = pd.to_datetime(df["end_date"].astype(str), errors="coerce")
 
-    # Filter FR Y-9C and current entries
+    # Filter for FR Y-9C and valid entries
     df = df[df["reporting_form"].str.contains("FR Y-9C", na=False)]
     df = df[df["end_date"].isna() | (df["end_date"] >= datetime.today())]
 
+    # Create key and return mapping
     df["key"] = df["mnemonic"].str.upper() + df["item_code"].astype(str)
     df = df.sort_values(by="start_date", ascending=False)
     df = df.drop_duplicates(subset="key", keep="first")
