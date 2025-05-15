@@ -45,7 +45,7 @@ def extract_field(data, field):
 def safe_parse_json(x):
     try:
         return json.loads(x) if isinstance(x, str) else (x if isinstance(x, dict) else {})
-    except Exception as e:
+    except Exception:
         return {}
 
 def infer_total_assets(x):
@@ -73,7 +73,7 @@ def get_periods():
         data = r.json()
         if not isinstance(data, list):
             return []
-        return sorted({rec["report_period"] for rec in data if "report_period" in rec}, reverse=True)
+        return sorted({str(rec["report_period"]).strip() for rec in data if "report_period" in rec}, reverse=True)
     except:
         return []
 
@@ -81,7 +81,8 @@ def get_periods():
 def fetch_data(period):
     if not period:
         return pd.DataFrame()
-    safe_period = quote(period)
+    safe_period = quote(str(period).strip())
+    st.text(f"🔍 Fetching data for period: {safe_period}")
     url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&report_period=eq.{safe_period}&limit=100000"
     r = requests.get(url, headers=HEADERS)
     try:
@@ -109,6 +110,7 @@ if st.button("🔄 Reload Data"):
 
 periods = get_periods()
 period_selector = st.selectbox("Select Reporting Period (optional)", ["All"] + periods)
+
 if period_selector == "All":
     all_data = [fetch_data(p) for p in periods]
     all_data = [df for df in all_data if not df.empty]
