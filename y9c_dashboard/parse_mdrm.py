@@ -29,15 +29,15 @@ def load_mnemonic_mapping():
     # Normalize columns
     df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
 
-    # Parse date strings
+    # Convert string dates to datetime
     df["start_date"] = pd.to_datetime(df["start_date"].astype(str), errors="coerce")
     df["end_date"] = pd.to_datetime(df["end_date"].astype(str), errors="coerce")
 
-    # Filter for FR Y-9C and valid entries
+    # Filter active Y-9C mnemonics
     df = df[df["reporting_form"].str.contains("FR Y-9C", na=False)]
     df = df[df["end_date"].isna() | (df["end_date"] >= datetime.today())]
 
-    # Create key and return mapping
+    # Construct unique key and return mapping
     df["key"] = df["mnemonic"].str.upper() + df["item_code"].astype(str)
     df = df.sort_values(by="start_date", ascending=False)
     df = df.drop_duplicates(subset="key", keep="first")
