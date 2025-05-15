@@ -75,10 +75,12 @@ def get_periods():
     r = requests.get(url, headers=HEADERS)
     try:
         data = r.json()
+        st.write("📦 Raw period response from Supabase:", data)
         return sorted({rec["report_period"] for rec in data if "report_period" in rec}, reverse=True)
     except Exception as e:
         st.error(f"❌ Failed to load periods: {e}")
         return []
+
 
 @st.cache_data(ttl=600)
 def fetch_data(period):
