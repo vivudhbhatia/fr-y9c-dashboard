@@ -92,7 +92,7 @@ def fetch_data(period):
         st.warning("⚠️ No period provided.")
         return pd.DataFrame()
 
-    safe_period = quote(f'"{period}"')  # Encode and wrap in quotes
+    safe_period = quote(period)  # Encode and wrap in quotes
     url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&report_period=eq.{safe_period}&limit=100000"
     st.write("🔗 Supabase Fetch URL:", url)  # Debug output
     r = requests.get(url, headers=HEADERS)
