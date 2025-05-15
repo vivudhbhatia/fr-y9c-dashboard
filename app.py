@@ -110,7 +110,12 @@ if st.button("🔄 Reload Data"):
 periods = get_periods()
 period_selector = st.selectbox("Select Reporting Period (optional)", ["All"] + periods)
 if period_selector == "All":
-    full_df = pd.concat([fetch_data(p) for p in periods], ignore_index=True)
+    all_data = [fetch_data(p) for p in periods]
+    all_data = [df for df in all_data if not df.empty]
+    if not all_data:
+        st.warning("⚠️ No data available across periods.")
+        st.stop()
+    full_df = pd.concat(all_data, ignore_index=True)
 else:
     full_df = fetch_data(period_selector)
 
@@ -118,13 +123,32 @@ if full_df.empty:
     st.warning("⚠️ No data returned for the selected period.")
     st.stop()
 
-# ─── ASSET BUCKET FILTER ───
 buckets = sorted(full_df["asset_bucket"].dropna().unique())
 selected_bucket = st.selectbox("Select Asset Bucket (optional)", ["All"] + buckets)
-
 if selected_bucket != "All":
     full_df = full_df[full_df["asset_bucket"] == selected_bucket]
 
-# ─── LANDING PAGE OUTPUT ───
+# ─── LANDING PAGE ───
 st.subheader("🏦 Bank Summary")
 st.dataframe(full_df[["rssd_id", "bank_name", "total_assets"]].sort_values("total_assets", ascending=False))
+
+# ─── COMPARISON CHART ───
+st.subheader("📈 Compare Banks on Selected Mnemonic")
+
+mnemonic_keys = list(mnemonic_mapping.keys())
+selected_mnemonic = st.selectbox("Select Mnemonic to Compare", mnemonic_keys)
+
+if selected_mnemonic:
+    full_df["value"] = full_df["parsed"].apply(lambda x: extract_field(x, selected_mnemonic))
+    chart_df = full_df.dropna(subset=["value"])
+    if not chart_df.empty:
+        fig = px.bar(
+            chart_df.sort_values("value", ascending=False).head(20),
+            x="bank_name",
+            y="value",
+            title=f"Top 20 Banks by Value for {selected_mnemonic} ({mnemonic_mapping.get(selected_mnemonic, '')})",
+            labels={"value": "Reported Value", "bank_name": "Bank"}
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("ℹ️ No data available for the selected mnemonic in this asset bucket.")
