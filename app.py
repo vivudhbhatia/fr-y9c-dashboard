@@ -31,9 +31,15 @@ def extract_field(data, field):
 
 def safe_parse_json(x):
     try:
-        return json.loads(x) if isinstance(x, str) else (x if isinstance(x, dict) else {})
+        # Handle double-encoded JSON strings
+        if isinstance(x, str):
+            return json.loads(json.loads(x)) if x.strip().startswith('"{"') else json.loads(x)
+        elif isinstance(x, dict):
+            return x
+        return {}
     except Exception:
         return {}
+
 
 def infer_total_assets(x):
     return extract_field(x, "bhck2170") or extract_field(x, "bhck0337") or extract_field(x, "bhck0020")
