@@ -81,22 +81,22 @@ def fetch_all_data():
     return df
 
 # ─── USER INPUT (DISABLED FOR NOW) ───
-# if st.button("🔄 Reload Data"):
-#     st.cache_data.clear()
-#     st.rerun()
+if st.button("🔄 Reload Data"):
+    st.cache_data.clear()
+    st.rerun()
 
-# periods = get_periods()
-# period_selector = st.selectbox("Select Reporting Period (optional)", ["All"] + periods)
+periods = get_periods()
+period_selector = st.selectbox("Select Reporting Period (optional)", ["All"] + periods)
 
-# if period_selector == "All":
-#     all_data = [fetch_data(p) for p in periods]
-#     all_data = [df for df in all_data if not df.empty]
-#     if not all_data:
-#         st.warning("⚠️ No data available across periods.")
-#         st.stop()
-#     full_df = pd.concat(all_data, ignore_index=True)
-# else:
-#     full_df = fetch_data(period_selector)
+if period_selector == "All":
+    all_data = [fetch_data(p) for p in periods]
+    all_data = [df for df in all_data if not df.empty]
+    if not all_data:
+        st.warning("⚠️ No data available across periods.")
+        st.stop()
+    full_df = pd.concat(all_data, ignore_index=True)
+else:
+    full_df = fetch_data(period_selector)
 
 # ─── FETCH EVERYTHING ───
 full_df = fetch_all_data()
@@ -106,10 +106,10 @@ if full_df.empty:
     st.stop()
 
 # ─── ASSET FILTER (DISABLED) ───
-# buckets = sorted(full_df["asset_bucket"].dropna().unique())
-# selected_bucket = st.selectbox("Select Asset Bucket (optional)", ["All"] + buckets)
-# if selected_bucket != "All":
-#     full_df = full_df[full_df["asset_bucket"] == selected_bucket]
+buckets = sorted(full_df["asset_bucket"].dropna().unique())
+selected_bucket = st.selectbox("Select Asset Bucket (optional)", ["All"] + buckets)
+if selected_bucket != "All":
+    full_df = full_df[full_df["asset_bucket"] == selected_bucket]
 
 # ─── LANDING PAGE ───
 st.subheader("🏦 All Bank Records")
