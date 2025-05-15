@@ -111,3 +111,31 @@ if st.button("🔄 Reload Data"):
     st.experimental_rerun()
 
 periods = get_periods()
+if not periods:
+    st.stop()
+
+selected_period = st.selectbox("Select Reporting Period", periods)
+
+# ─── DATA LOADING AND SAFETY ───────────────────────────────────────────────────
+
+df = fetch_data(selected_period)
+if df.empty:
+    st.warning("⚠️ No data returned for the selected period.")
+    st.stop()
+
+if "total_assets" not in df.columns:
+    st.error("❌ 'total_assets' column missing from dataset.")
+    st.stop()
+
+if df["total_assets"].isnull().all():
+    if not st.session_state.get("rerun_attempted"):
+        st.session_state["rerun_attempted"] = True
+        st.cache_data.clear()
+        st.experimental_rerun()
+    else:
+        st.error("❌ All 'total_assets' values are missing even after reload. Check data structure or mnemonic logic.")
+        st.stop()
+
+df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
+
+# 🔍 Data is now safe — continue building filters, charts, tables here.
