@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import requests
 import pandas as pd
@@ -10,9 +9,6 @@ from urllib.parse import quote
 
 # ─── CONFIGURATION ───
 st.set_page_config(page_title="FR Y-9C Dashboard", layout="wide")
-
-# Ensure set_page_config is first
-# Title and debug logs follow
 st.title("📊 FR Y-9C Bank Dashboard")
 
 # Supabase credentials
@@ -50,7 +46,7 @@ def extract_field(data, field):
 def safe_parse_json(x):
     try:
         return json.loads(x) if isinstance(x, str) else (x if isinstance(x, dict) else {})
-    except Exception as e:
+    except Exception:
         return {}
 
 def infer_total_assets(x):
@@ -92,9 +88,9 @@ def fetch_data(period):
         st.warning("⚠️ No period provided.")
         return pd.DataFrame()
 
-    safe_period = quote(period)  # Encode and wrap in quotes
+    safe_period = quote(period)  # ✅ Fix: DO NOT wrap in quotes
     url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&report_period=eq.{safe_period}&limit=100000"
-    st.write("🔗 Supabase Fetch URL:", url)  # Debug output
+    st.write("🔗 Supabase Fetch URL:", url)
     r = requests.get(url, headers=HEADERS)
 
     try:
@@ -153,5 +149,4 @@ if df["total_assets"].isnull().all():
 
 # Success
 df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
-# Ready for visualizations and filters
 st.dataframe(df[["rssd_id", "bank_name", "total_assets", "asset_bucket"]].head())
