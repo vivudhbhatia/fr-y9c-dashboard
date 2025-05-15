@@ -9,8 +9,8 @@ import plotly.express as px
 from urllib.parse import quote
 
 # ─── CONFIGURATION ───
-st.set_page_config(page_title="FR Y9C Dashboard", layout="wide")
-st.title("📊 FR Y-9C Bank Dashboard")
+st.set_page_config(page_title="FR Y-9C Dashboard", layout="wide")
+st.title("📊 FR Y9C Bank Dashboard")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
