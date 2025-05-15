@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 import os
 import plotly.express as px
+from urllib.parse import quote
 
 # ─── CONFIGURATION ───
 st.set_page_config(page_title="FR Y-9C Dashboard", layout="wide")
@@ -75,7 +76,7 @@ def get_periods():
         query_url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&distinct=report_period"
         r = requests.get(query_url, headers=HEADERS)
         st.write("📦 Raw period response from Supabase:", r.text)
-        
+
         data = r.json()
         if not isinstance(data, list):
             st.warning("⚠️ Supabase did not return a list.")
@@ -85,25 +86,31 @@ def get_periods():
         st.error(f"❌ Failed to load periods: {e}")
         return []
 
-
-
-
 @st.cache_data(ttl=600)
 def fetch_data(period):
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&report_period=eq.{period}&limit=100000"
+    if not period:
+        st.warning("⚠️ No period provided.")
+        return pd.DataFrame()
+
+    safe_period = quote(f'"{period}"')  # Encode and wrap in quotes
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&report_period=eq.{safe_period}&limit=100000"
+    st.write("🔗 Supabase Fetch URL:", url)  # Debug output
     r = requests.get(url, headers=HEADERS)
+
     try:
         response_json = r.json()
-        if not isinstance(response_json, list):
-            st.error(f"❌ Supabase returned invalid JSON: {response_json}")
-            return pd.DataFrame()
+        st.write("📦 Fetched Data Preview:", response_json[:5])
     except Exception as e:
         st.error(f"❌ Failed to decode JSON: {e}")
         return pd.DataFrame()
 
+    if not isinstance(response_json, list):
+        st.warning("⚠️ Supabase did not return a list.")
+        return pd.DataFrame()
+
     df = pd.json_normalize(response_json)
     if "rssd_id" not in df.columns:
-        st.error("❌ 'rssd_id' column missing in response.")
+        st.warning("⚠️ 'rssd_id' not found in response.")
         return pd.DataFrame()
 
     df["rssd_id"] = df["rssd_id"].astype(str)
