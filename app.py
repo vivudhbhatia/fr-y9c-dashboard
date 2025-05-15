@@ -71,8 +71,6 @@ def get_periods():
     r = requests.get(url, headers=HEADERS)
     try:
         data = r.json()
-        if not isinstance(data, list):
-            return []
         return sorted({str(rec["report_period"]).strip() for rec in data if "report_period" in rec}, reverse=True)
     except:
         return []
@@ -82,7 +80,6 @@ def fetch_data(period):
     if not period:
         return pd.DataFrame()
     safe_period = quote(str(period).strip())
-    st.text(f"🔍 Fetching data for period: {safe_period}")
     url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&report_period=eq.{safe_period}&limit=100000"
     r = requests.get(url, headers=HEADERS)
     try:
