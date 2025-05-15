@@ -128,13 +128,14 @@ if "total_assets" not in df.columns:
     st.stop()
 
 if df["total_assets"].isnull().all():
-    if not st.session_state.get("rerun_attempted"):
+    if "rerun_attempted" not in st.session_state:
         st.session_state["rerun_attempted"] = True
         st.cache_data.clear()
         st.experimental_rerun()
     else:
-        st.error("❌ All 'total_assets' values are missing even after reload. Check data structure or mnemonic logic.")
+        st.warning("⚠️ No 'total_assets' data available after reload. Please check the Supabase field mapping.")
         st.stop()
+
 
 df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
 
