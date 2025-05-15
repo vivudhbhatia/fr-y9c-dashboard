@@ -103,7 +103,8 @@ def fetch_data(period):
 # ─── USER INPUT ───
 if st.button("🔄 Reload Data"):
     st.cache_data.clear()
-    st.experimental_rerun()
+    st.rerun()
+
 
 periods = get_periods()
 if not periods:
@@ -125,9 +126,9 @@ if df["total_assets"].isnull().all():
     if "rerun_attempted" not in st.session_state:
         st.session_state["rerun_attempted"] = True
         st.cache_data.clear()
-        st.experimental_rerun()
+        st.rerun()
     else:
-        st.warning("⚠️ No 'total_assets' data available after reload. Please check the Supabase field mapping.")
+        st.warning("⚠️ No 'total_assets' data available after reload.")
         st.stop()
 
 # Success
