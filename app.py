@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 import requests
 import pandas as pd
@@ -6,8 +7,7 @@ from datetime import datetime
 import os
 import plotly.express as px
 
-# ─── CONFIGURATION ───────────────────────────────────────────────────────────────
-
+# ─── CONFIGURATION ───
 st.set_page_config(page_title="FR Y-9C Dashboard", layout="wide")
 st.title("📊 FR Y-9C Bank Dashboard")
 
@@ -34,8 +34,7 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# ─── HELPER FUNCTIONS ───────────────────────────────────────────────────────────
-
+# ─── HELPER FUNCTIONS ───
 def extract_field(data, field):
     try:
         return float(data.get(field, None))
@@ -45,14 +44,11 @@ def extract_field(data, field):
 def safe_parse_json(x):
     try:
         return json.loads(x) if isinstance(x, str) else (x if isinstance(x, dict) else {})
-    except Exception as e:
+    except Exception:
         return {}
 
 def infer_total_assets(x):
-    try:
-        return extract_field(x, "bhck2170") or extract_field(x, "bhck0337") or extract_field(x, "bhck0020")
-    except Exception:
-        return None
+    return extract_field(x, "bhck2170") or extract_field(x, "bhck0337") or extract_field(x, "bhck0020")
 
 def asset_bucket(val):
     if val is None or val == 0:
@@ -104,8 +100,7 @@ def fetch_data(period):
 
     return df
 
-# ─── USER INPUT ────────────────────────────────────────────────────────────────
-
+# ─── USER INPUT ───
 if st.button("🔄 Reload Data"):
     st.cache_data.clear()
     st.experimental_rerun()
@@ -116,8 +111,7 @@ if not periods:
 
 selected_period = st.selectbox("Select Reporting Period", periods)
 
-# ─── DATA LOADING AND SAFETY ───────────────────────────────────────────────────
-
+# ─── DATA LOADING AND SAFETY ───
 df = fetch_data(selected_period)
 if df.empty:
     st.warning("⚠️ No data returned for the selected period.")
@@ -136,7 +130,7 @@ if df["total_assets"].isnull().all():
         st.warning("⚠️ No 'total_assets' data available after reload. Please check the Supabase field mapping.")
         st.stop()
 
-
+# Success
 df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
-
-# 🔍 Data is now safe — continue building filters, charts, tables here.
+# Ready for visualizations and filters
+st.dataframe(df[["rssd_id", "bank_name", "total_assets", "asset_bucket"]].head())
