@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 # ─── CONFIGURATION ───
 st.set_page_config(page_title="FR Y-9C Dashboard", layout="wide")
-st.title("📊 FR Y9C Bank Dashboard")
+st.title("📊 FR Y-9C Bank Dashboard")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
@@ -108,59 +108,23 @@ if st.button("🔄 Reload Data"):
     st.rerun()
 
 periods = get_periods()
-if not periods:
-    st.stop()
+period_selector = st.selectbox("Select Reporting Period (optional)", ["All"] + periods)
+if period_selector == "All":
+    full_df = pd.concat([fetch_data(p) for p in periods], ignore_index=True)
+else:
+    full_df = fetch_data(period_selector)
 
-selected_period = st.selectbox("Select Reporting Period", periods)
-df = fetch_data(selected_period)
-if df.empty:
+if full_df.empty:
     st.warning("⚠️ No data returned for the selected period.")
     st.stop()
 
-# ─── FILTERS ───
-buckets = sorted(df["asset_bucket"].dropna().unique())
-selected_bucket = st.selectbox("Select Asset Bucket", buckets)
-banks_in_bucket = df[df["asset_bucket"] == selected_bucket].copy()
+# ─── ASSET BUCKET FILTER ───
+buckets = sorted(full_df["asset_bucket"].dropna().unique())
+selected_bucket = st.selectbox("Select Asset Bucket (optional)", ["All"] + buckets)
 
-bank_options = banks_in_bucket["bank_name"].unique()
-selected_banks = st.multiselect("Select Banks in Asset Bucket", bank_options, default=bank_options[:3])
+if selected_bucket != "All":
+    full_df = full_df[full_df["asset_bucket"] == selected_bucket]
 
-mnemonic_label = st.selectbox("Select Metric (Item Name)", sorted(mnemonic_mapping.values()))
-mnemonic_key = reverse_mapping.get(mnemonic_label.strip().lower())
-
-# Fallback if metric not found
-if not mnemonic_key:
-    mnemonic_key = "bhck2170"
-    st.warning("⚠️ Falling back to BHCK2170 (Total Assets) due to unknown selection.")
-
-comparison_df = banks_in_bucket[banks_in_bucket["bank_name"].isin(selected_banks)].copy()
-comparison_df["metric_value"] = comparison_df["parsed"].apply(lambda x: extract_field(x, mnemonic_key))
-
-if comparison_df["metric_value"].isnull().all():
-    st.warning("⚠️ No metric values found for the selected banks and mnemonic.")
-    st.dataframe(comparison_df[["bank_name", "parsed"]].head(5))
-    st.stop()
-
-fig = px.bar(
-    comparison_df,
-    x="bank_name",
-    y="metric_value",
-    title=f"Comparison of '{mnemonic_label}' in {selected_bucket} bucket",
-    labels={"metric_value": mnemonic_label, "bank_name": "Bank"}
-)
-st.plotly_chart(fig, use_container_width=True)
-
-# ─── MDRM LOOKUP ───
-st.markdown("---")
-st.subheader("📘 MDRM Dictionary Lookup")
-search_term = st.text_input("Search MDRM Mnemonic or Description")
-if search_term:
-    filtered = {
-        k: v for k, v in mnemonic_mapping.items()
-        if search_term.lower() in k.lower() or search_term.lower() in v.lower()
-    }
-    if filtered:
-        for k, v in filtered.items():
-            st.markdown(f"**{k}** → {v}")
-    else:
-        st.info("No matches found.")
+# ─── LANDING PAGE OUTPUT ───
+st.subheader("🏦 Bank Summary")
+st.dataframe(full_df[["rssd_id", "bank_name", "total_assets"]].sort_values("total_assets", ascending=False))
