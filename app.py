@@ -9,7 +9,19 @@ import plotly.express as px
 
 # ─── CONFIGURATION ───
 st.set_page_config(page_title="FR Y-9C Dashboard", layout="wide")
+
+# Ensure set_page_config is first
+# Title and debug logs follow
 st.title("📊 FR Y-9C Bank Dashboard")
+
+# Supabase credentials
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+st.write("🔍 Supabase URL:", SUPABASE_URL)
+st.write("🔐 Supabase Key Present:", bool(SUPABASE_KEY))
+if not SUPABASE_URL or not SUPABASE_KEY:
+    st.error("❌ Supabase environment variables are not set.")
+    st.stop()
 
 # Load MDRM dictionary
 try:
@@ -20,13 +32,6 @@ except Exception as e:
     st.error(f"❌ Failed to load MDRM mapping: {e}")
     mnemonic_mapping = {}
     reverse_mapping = {}
-
-# Supabase credentials
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-if not SUPABASE_URL or not SUPABASE_KEY:
-    st.error("❌ Supabase environment variables are not set.")
-    st.stop()
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
@@ -106,13 +111,14 @@ if st.button("🔄 Reload Data"):
     st.rerun()
 
 periods = get_periods()
+st.write("🗕️ Available Periods:", periods)
 if not periods:
     st.stop()
 
 selected_period = st.selectbox("Select Reporting Period", periods)
 
-# ─── DATA LOADING AND SAFETY ───
 df = fetch_data(selected_period)
+st.write("📦 Raw Data:", df.head())
 if df.empty:
     st.warning("⚠️ No data returned for the selected period.")
     st.stop()
