@@ -81,7 +81,7 @@ def get_periods():
 def fetch_data(period):
     if not period:
         return pd.DataFrame()
-    safe_period = quote(f'"{period}"')
+    safe_period = quote(period)
     url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&report_period=eq.{safe_period}&limit=100000"
     r = requests.get(url, headers=HEADERS)
     try:
