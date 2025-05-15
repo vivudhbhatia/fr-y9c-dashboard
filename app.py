@@ -69,7 +69,7 @@ def asset_bucket(val):
 @st.cache_data(ttl=600)
 def get_periods():
     try:
-        query_url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&distinct=report_period"
+        query_url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&order=report_period.desc&limit=10000"
         r = requests.get(query_url, headers=HEADERS)
         st.write("📦 Raw period response from Supabase:", r.text)
 
@@ -77,10 +77,13 @@ def get_periods():
         if not isinstance(data, list):
             st.warning("⚠️ Supabase did not return a list.")
             return []
-        return sorted({rec["report_period"] for rec in data if "report_period" in rec}, reverse=True)
+        
+        periods = list({rec["report_period"] for rec in data if "report_period" in rec})
+        return sorted(periods, reverse=True)
     except Exception as e:
         st.error(f"❌ Failed to load periods: {e}")
         return []
+
 
 @st.cache_data(ttl=600)
 def fetch_data(period):
