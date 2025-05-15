@@ -1,8 +1,8 @@
-import pandas as pd
-import requests
-from datetime import datetime
-import os
 import streamlit as st
+import os
+import requests
+import pandas as pd
+from datetime import datetime
 
 def load_mnemonic_mapping():
     SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL")
@@ -11,16 +11,14 @@ def load_mnemonic_mapping():
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise EnvironmentError("❌ Supabase environment variables are not set.")
 
-
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}"
     }
 
-    # Query entire mdrm_mapping table
     url = f"{SUPABASE_URL}/rest/v1/mdrm_mapping?select=*"
-
     response = requests.get(url, headers=headers)
+
     if response.status_code != 200:
         raise Exception(f"❌ Failed to load MDRM data: {response.text}")
 
@@ -28,7 +26,6 @@ def load_mnemonic_mapping():
     if df.empty:
         raise ValueError("⚠️ Supabase table 'mdrm_mapping' returned no rows.")
 
-    # Parse and clean
     df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
     df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce")
 
