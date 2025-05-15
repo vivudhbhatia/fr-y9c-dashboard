@@ -29,7 +29,7 @@ HEADERS = {
 try:
     from y9c_dashboard.parse_mdrm import load_mnemonic_mapping
     mnemonic_mapping = load_mnemonic_mapping()
-    reverse_mapping = {v.upper(): k for k, v in mnemonic_mapping.items()}
+    reverse_mapping = {v.strip().lower(): k for k, v in mnemonic_mapping.items()}
 except Exception as e:
     st.error(f"❌ Failed to load MDRM mapping: {e}")
     mnemonic_mapping = {}
@@ -45,7 +45,7 @@ def extract_field(data, field):
 def safe_parse_json(x):
     try:
         return json.loads(x) if isinstance(x, str) else (x if isinstance(x, dict) else {})
-    except Exception:
+    except Exception as e:
         return {}
 
 def infer_total_assets(x):
@@ -126,11 +126,20 @@ bank_options = banks_in_bucket["bank_name"].unique()
 selected_banks = st.multiselect("Select Banks in Asset Bucket", bank_options, default=bank_options[:3])
 
 mnemonic_label = st.selectbox("Select Metric (Item Name)", sorted(mnemonic_mapping.values()))
-mnemonic_key = reverse_mapping.get(mnemonic_label.upper())
+mnemonic_key = reverse_mapping.get(mnemonic_label.strip().lower())
 
-# ─── CHARTS ───
+# Fallback if metric not found
+if not mnemonic_key:
+    mnemonic_key = "bhck2170"
+    st.warning("⚠️ Falling back to BHCK2170 (Total Assets) due to unknown selection.")
+
 comparison_df = banks_in_bucket[banks_in_bucket["bank_name"].isin(selected_banks)].copy()
 comparison_df["metric_value"] = comparison_df["parsed"].apply(lambda x: extract_field(x, mnemonic_key))
+
+if comparison_df["metric_value"].isnull().all():
+    st.warning("⚠️ No metric values found for the selected banks and mnemonic.")
+    st.dataframe(comparison_df[["bank_name", "parsed"]].head(5))
+    st.stop()
 
 fig = px.bar(
     comparison_df,
