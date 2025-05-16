@@ -78,6 +78,7 @@ def fetch_all_data():
     df["short_name"] = df["parsed"].apply(lambda x: x.get("rssd9001", "Unknown"))    # Short Name
     df["total_assets"] = df["parsed"].apply(lambda x: infer_total_assets(x) if isinstance(x, dict) else None)
     df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
+    df["total_assets_fmt"] = df["total_assets"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else None)
     return df
 
 @st.cache_data(ttl=600)
@@ -86,7 +87,8 @@ def get_report_periods():
     r = requests.get(url, headers=HEADERS)
     try:
         data = r.json()
-        return sorted({str(rec["report_period"]).strip() for rec in data if "report_period" in rec}, reverse=True)
+        periods = [str(rec["report_period"]).strip() for rec in data if "report_period" in rec]
+        return sorted(set(periods), reverse=True)
     except:
         return []
 
@@ -104,12 +106,12 @@ if full_df.empty:
 st.subheader("🔎 Optional Filters")
 
 raw_periods = get_report_periods()
-raw_banks = sorted(full_df["bank_name"].dropna().unique())
-raw_buckets = sorted(full_df["asset_bucket"].dropna().unique())
-
 selected_period = st.selectbox("Select Reporting Period", [None] + raw_periods)
-selected_bank = st.selectbox("Select Bank (Legal Name)", [None] + raw_banks)
-selected_bucket = st.selectbox("Select Asset Bucket", [None] + raw_buckets)
+
+bank_query = st.text_input("Search Bank (Legal Name or RSSD ID)")
+
+asset_buckets = sorted(full_df["asset_bucket"].dropna().unique())
+selected_bucket = st.selectbox("Select Asset Bucket", [None] + asset_buckets)
 
 # ─── APPLY FILTERS ───
 filtered_df = full_df.copy()
@@ -117,8 +119,12 @@ filtered_df = full_df.copy()
 if selected_period:
     filtered_df = filtered_df[filtered_df["report_period"] == selected_period]
 
-if selected_bank:
-    filtered_df = filtered_df[filtered_df["bank_name"] == selected_bank]
+if bank_query:
+    q = bank_query.lower().strip()
+    filtered_df = filtered_df[
+        filtered_df["bank_name"].str.lower().str.contains(q) |
+        filtered_df["rssd_id"].str.contains(q)
+    ]
 
 if selected_bucket:
     filtered_df = filtered_df[filtered_df["asset_bucket"] == selected_bucket]
@@ -126,6 +132,8 @@ if selected_bucket:
 # ─── RESULTS ───
 st.subheader("🏦 Bank Summary")
 st.dataframe(
-    filtered_df[["rssd_id", "bank_name", "short_name", "total_assets", "report_period"]]
-    .sort_values("total_assets", ascending=False)
+    filtered_df[["rssd_id", "bank_name", "short_name", "total_assets_fmt", "report_period"]]
+    .rename(columns={"total_assets_fmt": "total_assets"})
+    .sort_values("total_assets_fmt", ascending=False),
+    use_container_width=True
 )
