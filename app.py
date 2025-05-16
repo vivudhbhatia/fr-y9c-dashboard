@@ -129,11 +129,14 @@ if bank_query:
 if selected_bucket:
     filtered_df = filtered_df[filtered_df["asset_bucket"] == selected_bucket]
 
+# ─── SORT WITH FALLBACK ───
+if "total_assets_fmt" in filtered_df.columns:
+    filtered_df = filtered_df.sort_values("total_assets", ascending=False)
+
 # ─── RESULTS ───
 st.subheader("🏦 Bank Summary")
 st.dataframe(
     filtered_df[["rssd_id", "bank_name", "short_name", "total_assets_fmt", "report_period"]]
-    .rename(columns={"total_assets_fmt": "total_assets"})
-    .sort_values("total_assets_fmt", ascending=False),
+    .rename(columns={"total_assets_fmt": "total_assets"}),
     use_container_width=True
 )
