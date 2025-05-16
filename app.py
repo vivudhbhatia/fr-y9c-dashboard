@@ -58,21 +58,8 @@ def asset_bucket(val):
         return "<100 billion"
 
 @st.cache_data(ttl=600)
-def get_periods():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&distinct=report_period"
-    r = requests.get(url, headers=HEADERS)
-    try:
-        data = r.json()
-        return sorted({str(rec["report_period"]).strip() for rec in data if "report_period" in rec}, reverse=True)
-    except:
-        return []
-
-@st.cache_data(ttl=600)
-def fetch_data(period):
-    if not period:
-        return pd.DataFrame()
-    safe_period = quote(str(period).strip())
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&report_period=eq.{safe_period}&limit=100000"
+def fetch_all_data():
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&limit=100000"
     r = requests.get(url, headers=HEADERS)
     try:
         response_json = r.json()
@@ -92,34 +79,41 @@ def fetch_data(period):
     df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
     return df
 
-# ─── USER INPUT ───
+# ─── MAIN ───
 if st.button("🔄 Reload Data"):
     st.cache_data.clear()
     st.rerun()
 
-periods = get_periods()
-period_selector = st.selectbox("Select Reporting Period (optional)", ["All"] + periods)
-
-if period_selector == "All":
-    all_data = [fetch_data(p) for p in periods]
-    all_data = [df for df in all_data if not df.empty]
-    if not all_data:
-        st.warning("⚠️ No data available across periods.")
-        st.stop()
-    full_df = pd.concat(all_data, ignore_index=True)
-else:
-    full_df = fetch_data(period_selector)
+full_df = fetch_all_data()
 
 if full_df.empty:
-    st.warning("⚠️ No data returned for the selected period.")
+    st.warning("⚠️ No data returned.")
     st.stop()
 
-# ─── ASSET FILTER ───
-buckets = sorted(full_df["asset_bucket"].dropna().unique())
-selected_bucket = st.selectbox("Select Asset Bucket (optional)", ["All"] + buckets)
-if selected_bucket != "All":
-    full_df = full_df[full_df["asset_bucket"] == selected_bucket]
+# ─── FILTERS ───
+st.subheader("🔎 Optional Filters")
 
-# ─── LANDING PAGE ───
+periods = sorted(full_df["report_period"].dropna().unique(), reverse=True)
+selected_period = st.selectbox("Select Reporting Period", [None] + periods)
+
+bank_names = sorted(full_df["bank_name"].dropna().unique())
+selected_bank = st.selectbox("Select Bank Name", [None] + bank_names)
+
+asset_buckets = sorted(full_df["asset_bucket"].dropna().unique())
+selected_bucket = st.selectbox("Select Asset Bucket", [None] + asset_buckets)
+
+# ─── APPLY FILTERS ───
+filtered_df = full_df.copy()
+
+if selected_period:
+    filtered_df = filtered_df[filtered_df["report_period"] == selected_period]
+
+if selected_bank:
+    filtered_df = filtered_df[filtered_df["bank_name"] == selected_bank]
+
+if selected_bucket:
+    filtered_df = filtered_df[filtered_df["asset_bucket"] == selected_bucket]
+
+# ─── RESULTS ───
 st.subheader("🏦 Bank Summary")
-st.dataframe(full_df[["rssd_id", "bank_name", "total_assets", "report_period"]].sort_values("total_assets", ascending=False))
+st.dataframe(filtered_df[["rssd_id", "bank_name", "total_assets", "report_period"]].sort_values("total_assets", ascending=False))
