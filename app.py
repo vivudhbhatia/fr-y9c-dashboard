@@ -79,15 +79,8 @@ def fetch_all_data():
     df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
     return df
 
-@st.cache_data(ttl=600)
-def get_report_periods():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&distinct=report_period"
-    r = requests.get(url, headers=HEADERS)
-    try:
-        data = r.json()
-        return sorted({str(rec["report_period"]).strip() for rec in data if "report_period" in rec}, reverse=True)
-    except:
-        return []
+def get_report_periods_from_df(df):
+    return sorted(df["report_period"].dropna().astype(str).unique(), reverse=True)
 
 # ─── MAIN ───
 if st.button("🔄 Reload Data"):
@@ -102,7 +95,7 @@ if full_df.empty:
 # ─── FILTERS ───
 st.subheader("🔎 Optional Filters")
 
-raw_periods = get_report_periods()
+raw_periods = get_report_periods_from_df(full_df)
 selected_period = st.selectbox("Select Reporting Period", [None] + raw_periods)
 
 bank_query = st.text_input("Search Bank (Legal Name or RSSD ID)")
