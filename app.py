@@ -93,14 +93,14 @@ if full_df.empty:
 # ─── FILTERS ───
 st.subheader("🔎 Optional Filters")
 
-periods = sorted(full_df["report_period"].dropna().unique(), reverse=True)
-selected_period = st.selectbox("Select Reporting Period", [None] + periods)
+# Use raw data for unique values
+raw_periods = sorted(full_df["report_period"].dropna().unique(), reverse=True)
+raw_banks = sorted(full_df["bank_name"].dropna().unique())
+raw_buckets = sorted(full_df["asset_bucket"].dropna().unique())
 
-bank_names = sorted(full_df["bank_name"].dropna().unique())
-selected_bank = st.selectbox("Select Bank Name", [None] + bank_names)
-
-asset_buckets = sorted(full_df["asset_bucket"].dropna().unique())
-selected_bucket = st.selectbox("Select Asset Bucket", [None] + asset_buckets)
+selected_period = st.selectbox("Select Reporting Period", [None] + raw_periods)
+selected_bank = st.selectbox("Select Bank Name", [None] + raw_banks)
+selected_bucket = st.selectbox("Select Asset Bucket", [None] + raw_buckets)
 
 # ─── APPLY FILTERS ───
 filtered_df = full_df.copy()
@@ -117,6 +117,6 @@ if selected_bucket:
 # ─── RESULTS ───
 st.subheader("🏦 Bank Summary")
 st.dataframe(
-    filtered_df[["bank_name", "total_assets", "report_period"]]
+    filtered_df[["rssd_id", "bank_name", "total_assets", "report_period"]]
     .sort_values("total_assets", ascending=False)
 )
