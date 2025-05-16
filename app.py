@@ -75,10 +75,8 @@ def fetch_all_data():
     df["rssd_id"] = df["rssd_id"].astype(str)
     df["parsed"] = df["data"].apply(safe_parse_json)
     df["bank_name"] = df["parsed"].apply(lambda x: x.get("rssd9017", "Unknown"))     # Legal Name
-    df["short_name"] = df["parsed"].apply(lambda x: x.get("rssd9001", "Unknown"))    # Short Name
     df["total_assets"] = df["parsed"].apply(lambda x: infer_total_assets(x) if isinstance(x, dict) else None)
     df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
-    df["total_assets_fmt"] = df["total_assets"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else None)
     return df
 
 @st.cache_data(ttl=600)
@@ -87,8 +85,7 @@ def get_report_periods():
     r = requests.get(url, headers=HEADERS)
     try:
         data = r.json()
-        periods = [str(rec["report_period"]).strip() for rec in data if "report_period" in rec]
-        return sorted(set(periods), reverse=True)
+        return sorted({str(rec["report_period"]).strip() for rec in data if "report_period" in rec}, reverse=True)
     except:
         return []
 
@@ -129,14 +126,20 @@ if bank_query:
 if selected_bucket:
     filtered_df = filtered_df[filtered_df["asset_bucket"] == selected_bucket]
 
-# ─── SORT WITH FALLBACK ───
-if "total_assets_fmt" in filtered_df.columns:
+# ─── SORT ───
+if "total_assets" in filtered_df.columns:
     filtered_df = filtered_df.sort_values("total_assets", ascending=False)
 
-# ─── RESULTS ───
+# ─── DISPLAY ───
 st.subheader("🏦 Bank Summary")
 st.dataframe(
-    filtered_df[["rssd_id", "bank_name", "short_name", "total_assets_fmt", "report_period"]]
-    .rename(columns={"total_assets_fmt": "total_assets"}),
-    use_container_width=True
+    filtered_df[["rssd_id", "bank_name", "total_assets", "report_period"]],
+    use_container_width=True,
+    column_config={
+        "total_assets": st.column_config.NumberColumn(
+            label="Total Assets ($)",
+            format="$,",
+            help="Reported total assets in US dollars"
+        )
+    }
 )
