@@ -74,10 +74,21 @@ def fetch_all_data():
 
     df["rssd_id"] = df["rssd_id"].astype(str)
     df["parsed"] = df["data"].apply(safe_parse_json)
-    df["bank_name"] = df["parsed"].apply(lambda x: x.get("rssd9001", "Unknown"))
+    df["bank_name"] = df["parsed"].apply(lambda x: x.get("rssd9017", "Unknown"))     # Legal Name
+    df["short_name"] = df["parsed"].apply(lambda x: x.get("rssd9001", "Unknown"))    # Short Name
     df["total_assets"] = df["parsed"].apply(lambda x: infer_total_assets(x) if isinstance(x, dict) else None)
     df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
     return df
+
+@st.cache_data(ttl=600)
+def get_report_periods():
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&distinct=report_period"
+    r = requests.get(url, headers=HEADERS)
+    try:
+        data = r.json()
+        return sorted({str(rec["report_period"]).strip() for rec in data if "report_period" in rec}, reverse=True)
+    except:
+        return []
 
 # ─── MAIN ───
 if st.button("🔄 Reload Data"):
@@ -85,7 +96,6 @@ if st.button("🔄 Reload Data"):
     st.rerun()
 
 full_df = fetch_all_data()
-
 if full_df.empty:
     st.warning("⚠️ No data returned.")
     st.stop()
@@ -93,13 +103,12 @@ if full_df.empty:
 # ─── FILTERS ───
 st.subheader("🔎 Optional Filters")
 
-# Use raw data for unique values
-raw_periods = sorted(full_df["report_period"].dropna().unique(), reverse=True)
+raw_periods = get_report_periods()
 raw_banks = sorted(full_df["bank_name"].dropna().unique())
 raw_buckets = sorted(full_df["asset_bucket"].dropna().unique())
 
 selected_period = st.selectbox("Select Reporting Period", [None] + raw_periods)
-selected_bank = st.selectbox("Select Bank Name", [None] + raw_banks)
+selected_bank = st.selectbox("Select Bank (Legal Name)", [None] + raw_banks)
 selected_bucket = st.selectbox("Select Asset Bucket", [None] + raw_buckets)
 
 # ─── APPLY FILTERS ───
@@ -117,6 +126,6 @@ if selected_bucket:
 # ─── RESULTS ───
 st.subheader("🏦 Bank Summary")
 st.dataframe(
-    filtered_df[["rssd_id", "bank_name", "total_assets", "report_period"]]
+    filtered_df[["rssd_id", "bank_name", "short_name", "total_assets", "report_period"]]
     .sort_values("total_assets", ascending=False)
 )
