@@ -59,7 +59,7 @@ def asset_bucket(val):
 
 @st.cache_data(ttl=600)
 def fetch_all_data():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&limit=100000"
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data"
     r = requests.get(url, headers=HEADERS)
     try:
         response_json = r.json()
@@ -74,8 +74,8 @@ def fetch_all_data():
 
     df["rssd_id"] = df["rssd_id"].astype(str)
     df["parsed"] = df["data"].apply(safe_parse_json)
-    df["total_assets"] = df["parsed"].apply(lambda x: infer_total_assets(x) if isinstance(x, dict) else None)
     df["bank_name"] = df["parsed"].apply(lambda x: x.get("rssd9001", "Unknown"))
+    df["total_assets"] = df["parsed"].apply(lambda x: infer_total_assets(x) if isinstance(x, dict) else None)
     df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
     return df
 
@@ -116,4 +116,7 @@ if selected_bucket:
 
 # ─── RESULTS ───
 st.subheader("🏦 Bank Summary")
-st.dataframe(filtered_df[["rssd_id", "bank_name", "total_assets", "report_period"]].sort_values("total_assets", ascending=False))
+st.dataframe(
+    filtered_df[["bank_name", "total_assets", "report_period"]]
+    .sort_values("total_assets", ascending=False)
+)
