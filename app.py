@@ -125,17 +125,15 @@ if "total_assets" in filtered_df.columns:
 
 # ─── DISPLAY ───
 
+# ─── DISPLAY ───
 st.subheader("🏦 Bank Summary")
-
-display_df = filtered_df.dropna(subset=["total_assets"]).copy()
-
 st.dataframe(
-    display_df[["rssd_id", "bank_name", "total_assets", "report_period"]],
+    filtered_df[["rssd_id", "bank_name", "total_assets", "report_period"]],
     use_container_width=True,
     column_config={
         "total_assets": st.column_config.NumberColumn(
             label="Total Assets ($)",
-            format="$,.0f",
+            format="$,",
             help="Reported total assets in US dollars"
         )
     }
