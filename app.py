@@ -83,13 +83,18 @@ def fetch_all_data():
 def get_all_report_periods():
     url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&distinct=report_period&limit=9999"
     r = requests.get(url, headers=HEADERS)
+    if not r.ok:
+        st.error(f"❌ Supabase error: {r.status_code} – {r.text}")
+        return []
+
     try:
         data = r.json()
-        # data is a list of report_period values (not dicts)
-        return sorted({str(row) for row in data if row}, reverse=True)
+        return sorted({str(row.get("report_period")) for row in data if isinstance(row, dict) and row.get("report_period")}, reverse=True)
     except Exception as e:
-        st.error(f"❌ Failed to fetch periods: {e}")
+        st.error(f"❌ Failed to parse periods: {e}")
         return []
+st.write("Raw Supabase period response:", data)
+
 
 
 # ─── MAIN ───
