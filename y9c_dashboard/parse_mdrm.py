@@ -17,12 +17,27 @@ def load_mnemonic_mapping():
         "Authorization": f"Bearer {SUPABASE_KEY}"
     }
 
-    url = f"{SUPABASE_URL}/rest/v1/mdrm_mapping?select=*"
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        raise Exception(f"❌ Failed to load MDRM data: {response.text}")
+    # Fetch up to 10,000 rows in pages of 2,000
+    rows = []
+    page_size = 2000
+    offset = 0
 
-    df = pd.DataFrame(response.json())
+    while True:
+        url = f"{SUPABASE_URL}/rest/v1/mdrm_mapping?select=*&offset={offset}&limit={page_size}"
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            raise Exception(f"❌ Failed to load MDRM data: {response.text}")
+
+        page = response.json()
+        if not page:
+            break
+
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+
+    df = pd.DataFrame(rows)
 
     if df.empty:
         raise ValueError("⚠️ MDRM table in Supabase is empty.")
