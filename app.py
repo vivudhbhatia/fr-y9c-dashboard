@@ -85,10 +85,12 @@ def get_all_report_periods():
     r = requests.get(url, headers=HEADERS)
     try:
         data = r.json()
-        return sorted({str(row["report_period"]) for row in data if row.get("report_period")}, reverse=True)
+        # data is a list of report_period values (not dicts)
+        return sorted({str(row) for row in data if row}, reverse=True)
     except Exception as e:
         st.error(f"❌ Failed to fetch periods: {e}")
         return []
+
 
 # ─── MAIN ───
 if st.button("🔄 Reload Data"):
