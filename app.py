@@ -59,16 +59,30 @@ def asset_bucket(val):
 
 @st.cache_data(ttl=600)
 def fetch_all_data():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,data&limit=100000"
-    r = requests.get(url, headers=HEADERS)
-    try:
-        response_json = r.json()
-    except:
-        return pd.DataFrame()
-    if not isinstance(response_json, list):
+    rows = []
+    page_size = 2000
+    offset = 0
+
+    while True:
+        url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,data&offset={offset}&limit={page_size}"
+        r = requests.get(url, headers=HEADERS)
+        if r.status_code != 200:
+            break
+
+        page = r.json()
+        if not page:
+            break
+
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+
+        offset += page_size
+
+    if not rows:
         return pd.DataFrame()
 
-    df = pd.json_normalize(response_json)
+    df = pd.json_normalize(rows)
     df["rssd_id"] = df["rssd_id"].astype(str)
     df["parsed"] = df["data"].apply(safe_parse_json)
     df["bank_name"] = df["parsed"].apply(lambda x: x.get("rssd9017", "Unknown"))
