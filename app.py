@@ -79,8 +79,16 @@ def fetch_all_data():
     df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
     return df
 
-def get_report_periods_from_df(df):
-    return sorted(df["report_period"].dropna().astype(str).unique(), reverse=True)
+@st.cache_data(ttl=600)
+def get_all_report_periods():
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&distinct=report_period&limit=9999"
+    r = requests.get(url, headers=HEADERS)
+    try:
+        data = r.json()
+        return sorted({str(row["report_period"]) for row in data if row.get("report_period")}, reverse=True)
+    except Exception as e:
+        st.error(f"❌ Failed to fetch periods: {e}")
+        return []
 
 # ─── MAIN ───
 if st.button("🔄 Reload Data"):
@@ -95,15 +103,6 @@ if full_df.empty:
 # ─── FILTERS ───
 st.subheader("🔎 Optional Filters")
 
-@st.cache_data(ttl=600)
-def get_all_report_periods():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&distinct=report_period&order=report_period.desc"
-    r = requests.get(url, headers=HEADERS)
-    try:
-        data = r.json()
-        return sorted({str(row["report_period"]) for row in data if row.get("report_period")}, reverse=True)
-    except:
-        return []
 raw_periods = get_all_report_periods()
 selected_period = st.selectbox("Select Reporting Period", [None] + raw_periods)
 
@@ -134,13 +133,13 @@ st.subheader("🏦 Bank Summary")
 # Ensure numeric conversion
 filtered_df["total_assets"] = pd.to_numeric(filtered_df["total_assets"], errors="coerce")
 
-# Drop missing
+# Drop missing values
 display_df = filtered_df.dropna(subset=["total_assets"]).copy()
 
 # Format as dollars
 display_df["Total Assets ($)"] = display_df["total_assets"].apply(lambda x: f"${x:,.0f}")
 
-# Final table
+# Display table
 st.dataframe(
     display_df[["rssd_id", "bank_name", "Total Assets ($)", "report_period"]],
     use_container_width=True
