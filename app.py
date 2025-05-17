@@ -125,7 +125,6 @@ if "total_assets" in filtered_df.columns:
 
 filtered_df["total_assets"] = pd.to_numeric(filtered_df["total_assets"], errors="coerce")
 
-# ─── CLEANED DISPLAY ───
 st.subheader("🏦 Bank Summary")
 
 # Drop rows with missing or invalid numeric values
@@ -144,9 +143,4 @@ st.dataframe(
     }
 )
 
-    }
-)
-
-    }
-)
 
