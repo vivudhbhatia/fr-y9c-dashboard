@@ -95,7 +95,16 @@ if full_df.empty:
 # ─── FILTERS ───
 st.subheader("🔎 Optional Filters")
 
-raw_periods = get_report_periods_from_df(full_df)
+@st.cache_data(ttl=600)
+def get_all_report_periods():
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&distinct=report_period&order=report_period.desc"
+    r = requests.get(url, headers=HEADERS)
+    try:
+        data = r.json()
+        return sorted({str(row["report_period"]) for row in data if row.get("report_period")}, reverse=True)
+    except:
+        return []
+raw_periods = get_all_report_periods()
 selected_period = st.selectbox("Select Reporting Period", [None] + raw_periods)
 
 bank_query = st.text_input("Search Bank (Legal Name or RSSD ID)")
