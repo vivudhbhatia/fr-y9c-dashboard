@@ -123,11 +123,13 @@ if selected_bucket:
 if "total_assets" in filtered_df.columns:
     filtered_df = filtered_df.sort_values("total_assets", ascending=False)
 
-# ─── DISPLAY ───
+filtered_df["total_assets"] = pd.to_numeric(filtered_df["total_assets"], errors="coerce")
 
 # ─── CLEANED DISPLAY ───
 st.subheader("🏦 Bank Summary")
 
+# Drop rows with missing or invalid numeric values
+filtered_df["total_assets"] = pd.to_numeric(filtered_df["total_assets"], errors="coerce")
 display_df = filtered_df.dropna(subset=["total_assets"]).copy()
 
 st.dataframe(
@@ -139,6 +141,9 @@ st.dataframe(
             format="$,.0f",
             help="Reported total assets in US dollars"
         )
+    }
+)
+
     }
 )
 
