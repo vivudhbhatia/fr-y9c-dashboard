@@ -93,9 +93,6 @@ def get_all_report_periods():
     except Exception as e:
         st.error(f"❌ Failed to parse periods: {e}")
         return []
-st.write("Raw Supabase period response:", data)
-
-
 
 # ─── MAIN ───
 if st.button("🔄 Reload Data"):
