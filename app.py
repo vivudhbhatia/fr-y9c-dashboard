@@ -127,19 +127,22 @@ filtered_df["total_assets"] = pd.to_numeric(filtered_df["total_assets"], errors=
 
 st.subheader("🏦 Bank Summary")
 
-# Drop rows with missing or invalid numeric values
+# Ensure numeric conversion
 filtered_df["total_assets"] = pd.to_numeric(filtered_df["total_assets"], errors="coerce")
+
+# Drop missing
 display_df = filtered_df.dropna(subset=["total_assets"]).copy()
 
+# Format as dollars
+display_df["total_assets_formatted"] = display_df["total_assets"].apply(lambda x: f"${x:,.0f}")
+
+# Final display (as formatted text)
 st.dataframe(
-    display_df[["rssd_id", "bank_name", "total_assets", "report_period"]],
-    use_container_width=True,
-    column_config={
-        "total_assets": st.column_config.NumberColumn(
-            label="Total Assets ($)",
-            format="$,.0f",
-            help="Reported total assets in US dollars"
+    display_df[["rssd_id", "bank_name", "total_assets_formatted", "report_period"]]
+    .rename(columns={"total_assets_formatted": "Total Assets ($)"}),
+    use_container_width=True
         )
+
     }
 )
 
