@@ -59,7 +59,7 @@ def asset_bucket(val):
 
 @st.cache_data(ttl=600)
 def fetch_all_data():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&limit=100000"
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,data&limit=100000"
     r = requests.get(url, headers=HEADERS)
     try:
         response_json = r.json()
@@ -69,19 +69,17 @@ def fetch_all_data():
         return pd.DataFrame()
 
     df = pd.json_normalize(response_json)
-    if "rssd_id" not in df.columns:
-        return pd.DataFrame()
-
     df["rssd_id"] = df["rssd_id"].astype(str)
     df["parsed"] = df["data"].apply(safe_parse_json)
-    df["bank_name"] = df["parsed"].apply(lambda x: x.get("rssd9017", "Unknown"))     # Legal Name
+    df["bank_name"] = df["parsed"].apply(lambda x: x.get("rssd9017", "Unknown"))
+    df["report_period"] = df["parsed"].apply(lambda x: x.get("rssd9999"))
     df["total_assets"] = df["parsed"].apply(lambda x: infer_total_assets(x) if isinstance(x, dict) else None)
     df["asset_bucket"] = df["total_assets"].apply(asset_bucket)
     return df
 
 @st.cache_data(ttl=600)
 def get_all_report_periods():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&limit=9999"
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=data&limit=9999"
     r = requests.get(url, headers=HEADERS)
 
     if not r.ok:
@@ -90,10 +88,8 @@ def get_all_report_periods():
 
     try:
         data = r.json()
-        return sorted(
-            {str(row["report_period"]) for row in data if isinstance(row, dict) and row.get("report_period")},
-            reverse=True
-        )
+        parsed = [safe_parse_json(row["data"]) for row in data if isinstance(row, dict) and "data" in row]
+        return sorted({str(x.get("rssd9999")) for x in parsed if x.get("rssd9999")}, reverse=True)
     except Exception as e:
         st.error(f"❌ Failed to parse periods: {e}")
         return []
@@ -138,16 +134,10 @@ if selected_bucket:
 # ─── CLEANED DISPLAY ───
 st.subheader("🏦 Bank Summary")
 
-# Ensure numeric conversion
 filtered_df["total_assets"] = pd.to_numeric(filtered_df["total_assets"], errors="coerce")
-
-# Drop missing
 display_df = filtered_df.dropna(subset=["total_assets"]).copy()
-
-# Format as dollars
 display_df["Total Assets ($)"] = display_df["total_assets"].apply(lambda x: f"${x:,.0f}")
 
-# Final table
 st.dataframe(
     display_df[["rssd_id", "bank_name", "Total Assets ($)", "report_period"]],
     use_container_width=True
