@@ -119,12 +119,7 @@ if bank_query:
 if selected_bucket:
     filtered_df = filtered_df[filtered_df["asset_bucket"] == selected_bucket]
 
-# ─── SORT ───
-if "total_assets" in filtered_df.columns:
-    filtered_df = filtered_df.sort_values("total_assets", ascending=False)
-
-filtered_df["total_assets"] = pd.to_numeric(filtered_df["total_assets"], errors="coerce")
-
+# ─── CLEANED DISPLAY ───
 st.subheader("🏦 Bank Summary")
 
 # Ensure numeric conversion
@@ -134,16 +129,10 @@ filtered_df["total_assets"] = pd.to_numeric(filtered_df["total_assets"], errors=
 display_df = filtered_df.dropna(subset=["total_assets"]).copy()
 
 # Format as dollars
-display_df["total_assets_formatted"] = display_df["total_assets"].apply(lambda x: f"${x:,.0f}")
+display_df["Total Assets ($)"] = display_df["total_assets"].apply(lambda x: f"${x:,.0f}")
 
-# Final display (as formatted text)
+# Final table
 st.dataframe(
-    display_df[["rssd_id", "bank_name", "total_assets_formatted", "report_period"]]
-    .rename(columns={"total_assets_formatted": "Total Assets ($)"}),
+    display_df[["rssd_id", "bank_name", "Total Assets ($)", "report_period"]],
     use_container_width=True
-        )
-
-    }
 )
-
-
