@@ -59,7 +59,7 @@ def asset_bucket(val):
 
 @st.cache_data(ttl=600)
 def fetch_all_data():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data"
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&limit=100000"
     r = requests.get(url, headers=HEADERS)
     try:
         response_json = r.json()
@@ -81,15 +81,19 @@ def fetch_all_data():
 
 @st.cache_data(ttl=600)
 def get_all_report_periods():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&distinct=report_period&limit=9999"
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=report_period&limit=9999"
     r = requests.get(url, headers=HEADERS)
+
     if not r.ok:
         st.error(f"❌ Supabase error: {r.status_code} – {r.text}")
         return []
 
     try:
         data = r.json()
-        return sorted({str(row.get("report_period")) for row in data if isinstance(row, dict) and row.get("report_period")}, reverse=True)
+        return sorted(
+            {str(row["report_period"]) for row in data if isinstance(row, dict) and row.get("report_period")},
+            reverse=True
+        )
     except Exception as e:
         st.error(f"❌ Failed to parse periods: {e}")
         return []
@@ -137,13 +141,13 @@ st.subheader("🏦 Bank Summary")
 # Ensure numeric conversion
 filtered_df["total_assets"] = pd.to_numeric(filtered_df["total_assets"], errors="coerce")
 
-# Drop missing values
+# Drop missing
 display_df = filtered_df.dropna(subset=["total_assets"]).copy()
 
 # Format as dollars
 display_df["Total Assets ($)"] = display_df["total_assets"].apply(lambda x: f"${x:,.0f}")
 
-# Display table
+# Final table
 st.dataframe(
     display_df[["rssd_id", "bank_name", "Total Assets ($)", "report_period"]],
     use_container_width=True
