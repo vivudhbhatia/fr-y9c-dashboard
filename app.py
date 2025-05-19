@@ -12,7 +12,7 @@ import time
 def init_supabase():
     return create_client(st.secrets.SUPABASE_URL, st.secrets.SUPABASE_KEY)
 
-# Updated pagination function with correct method names
+# Paginated data fetcher
 def fetch_paginated_data(table_name, batch_size=1000):
     supabase = init_supabase()
     all_data = []
@@ -20,13 +20,13 @@ def fetch_paginated_data(table_name, batch_size=1000):
     
     while True:
         try:
-            # Corrected method chain
-            query = supabase.table(table_name).select("*", count='exact')
-            data = query.range(page*batch_size, (page+1)*batch_size-1).execute()
+            response = supabase.table(table_name)\
+                         .select("*", count='exact')\
+                         .range(page*batch_size, (page+1)*batch_size-1)\
+                         .execute()
+            all_data.extend(response.data)
             
-            all_data.extend(data.data)
-            
-            if len(all_data) >= data.count:
+            if len(all_data) >= response.count:
                 break
             page += 1
             time.sleep(0.1)
@@ -36,7 +36,7 @@ def fetch_paginated_data(table_name, batch_size=1000):
     
     return pd.DataFrame(all_data)
 
-# Enhanced data loader with proper error handling
+# Data loader with proper closure
 @st.cache_data(ttl=3600, show_spinner="Loading regulatory data...")
 def load_data():
     try:
@@ -44,10 +44,16 @@ def load_data():
         y9c_df = fetch_paginated_data('y9c_full')
         mdrm_df = fetch_paginated_data('mdrm_mapping')
 
-        # Process y9c data with safe JSON parsing
+        # Process y9c data
+        y9c_df = y9c_df.rename(columns={
+            'rssd_id': 'RSSD ID',
+            'report_period': 'Report Date'
+        })
+        
+        # JSON parsing with error handling
         if not y9c_df.empty and 'data' in y9c_df.columns:
             y9c_df['metrics'] = y9c_df['data'].apply(
-                lambda x: json.loads(x.replace('""', '"').strip('"')) if '"' else {}
+                lambda x: json.loads(x.replace('""', '"').strip('"')) if pd.notna(x) else {}
             )
             metrics_df = pd.json_normalize(y9c_df['metrics'])
             y9c_df = pd.concat([y9c_df.drop(['data', 'metrics'], axis=1), metrics_df], axis=1)
@@ -55,23 +61,24 @@ def load_data():
             st.warning("No data found in y9c_full table")
             return pd.DataFrame(), pd.DataFrame()
 
-        # Create composite keys safely
+        # Create composite keys
         mdrm_df['composite_key'] = mdrm_df['mnemonic'].astype(str) + mdrm_df['item_code'].astype(str)
-        y9c_df['composite_key'] = y9c_df['bhck2170'].astype(str)  # Using Total Assets as key
+        y9c_df['composite_key'] = y9c_df['bhck2170'].astype(str)  # Example key
 
-        # Merge dataframes
+        # Merge dataframes with proper closure
         merged_df = pd.merge(
             y9c_df,
             mdrm_df,
             on='composite_key',
             how='left',
             suffixes=('', '_mdrm')
-        
-        # Convert dates safely
-        merged_df['Report Date'] = pd.to_datetime(merged_df['report_period'], errors='coerce')
+        )  # Closing parenthesis added here
+
+        # Date handling
+        merged_df['Report Date'] = pd.to_datetime(merged_df['Report Date'], errors='coerce')
         merged_df = merged_df.dropna(subset=['Report Date'])
         
-        return merged_df, merged_df  # Returning same DF twice for compatibility
+        return merged_df, merged_df
 
     except Exception as e:
         st.error(f"Data Loading Error: {str(e)}")
@@ -92,6 +99,7 @@ def format_metric(value, metric_name):
     except:
         return "N/A"
 
+# Main app
 def main():
     st.set_page_config(
         page_title="FR Y-9C Regulatory Dashboard",
@@ -105,32 +113,29 @@ def main():
     # Load data
     raw_df, analysis_df = load_data()
 
+    # Date handling
+    if not analysis_df.empty:
+        dates = analysis_df['Report Date'].dt.date.unique()
+        date_options = sorted(dates, reverse=True)
+    else:
+        date_options = []
+
     # Sidebar controls
     with st.sidebar:
         st.header("🔍 Filters")
         
-        # Get distinct reporting periods
-        if not analysis_df.empty:
-            dates = analysis_df['Report Date'].dt.date.unique()
-            date_options = sorted(dates, reverse=True)
-        else:
-            date_options = []
-
-        # Date selection
         selected_dates = st.multiselect(
             "Reporting Period",
             options=date_options,
             default=date_options[:1] if date_options else []
         )
 
-        # Institution selector
         institutions = st.multiselect(
             "Select Institutions",
             options=analysis_df['RSSD ID'].unique() if not analysis_df.empty else [],
             default=analysis_df['RSSD ID'].unique()[:3] if not analysis_df.empty else []
         )
 
-        # Metric selection
         available_metrics = [col for col in analysis_df.columns 
                            if col not in ['RSSD ID', 'Report Date', 'composite_key']]
         selected_metrics = st.multiselect(
@@ -145,7 +150,7 @@ def main():
         (analysis_df['RSSD ID'].isin(institutions))
     ] if not analysis_df.empty else pd.DataFrame()
 
-    # KPI Cards
+    # Display metrics
     st.header("📈 Key Performance Indicators")
     if not filtered_df.empty:
         cols = st.columns(len(selected_metrics))
@@ -158,8 +163,8 @@ def main():
                 st.metric(
                     label=metric,
                     value=format_metric(value, metric),
-                    help=raw_df[raw_df['item_name'] == metric]
-                         ['description'].iloc[0] if not raw_df.empty else ""
+                    help=raw_df[raw_df['item_name'] == metric]['description'].iloc[0] 
+                         if not raw_df.empty else ""
                 )
     else:
         st.warning("No data available for selected filters")
