@@ -57,7 +57,7 @@ def load_data():
             mdrm_df,
             on='composite_key',
             how='left',
-            suffixes=('', '_mdrm')
+            suffixes=('', '_mdrm'))
             
         # Convert dates and filter valid mappings
         merged_df['Report Date'] = pd.to_datetime(merged_df['Report Date'])
