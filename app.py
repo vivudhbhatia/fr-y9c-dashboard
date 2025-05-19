@@ -5,88 +5,65 @@ from supabase import create_client
 from datetime import datetime
 from io import BytesIO
 
-# Initialize Supabase Client with error handling
+# Initialize Supabase Client
 @st.cache_resource
 def init_supabase():
-    try:
-        client = create_client(
-            st.secrets.SUPABASE_URL,
-            st.secrets.SUPABASE_KEY
-        )
-        return client
-    except Exception as e:
-        st.error(f"🔥 Database Connection Error: {str(e)}")
-        return None
+    return create_client(st.secrets.SUPABASE_URL, st.secrets.SUPABASE_KEY)
 
-# Enhanced data loader with dynamic MDRM mapping
+# Enhanced data loader with composite key handling
 @st.cache_data(ttl=3600, show_spinner="Loading regulatory data...")
-def load_data(reporting_form=None):
+def load_data():
     supabase = init_supabase()
-    if not supabase:
-        return pd.DataFrame(), pd.DataFrame()
-
+    
     try:
-        # Build dynamic query with table join
-        query = supabase.table('y9c_full') \
-            .select('''
-                rssd_id,
-                report_date,
-                item_value,
-                mnemonic,
-                item_code,
-                mdrm_mapping(
-                    item_name,
-                    description,
-                    start_date,
-                    end_date,
-                    reporting_form
-                )
-            ''') \
-            .lte('report_date', 'mdrm_mapping(end_date)') \
-            .gte('report_date', 'mdrm_mapping(start_date)')
-
-        if reporting_form:
-            query = query.eq('mdrm_mapping.reporting_form', reporting_form)
-
-        response = query.execute()
-        data = response.data
-
-        # Process and validate data
-        processed = []
-        for row in data:
-            try:
-                processed.append({
-                    'rssd_id': row['rssd_id'],
-                    'report_date': pd.to_datetime(row['report_date']),
-                    'item_value': float(row['item_value']),
-                    'item_name': row['mdrm_mapping']['item_name'],
-                    'description': row['mdrm_mapping']['description'],
-                    'reporting_form': row['mdrm_mapping']['reporting_form']
-                })
-            except (KeyError, ValueError) as e:
-                st.warning(f"Skipping invalid row: {str(e)}")
-                continue
-
-        if not processed:
-            return pd.DataFrame(), pd.DataFrame()
-
-        df = pd.DataFrame(processed)
+        # Load data from both tables
+        y9c_response = supabase.table('y9c_full').select('*').execute()
+        mdrm_response = supabase.table('mdrm_mapping').select('*').execute()
         
-        # Pivot to wide format for analysis
-        pivot_df = df.pivot_table(
+        y9c_data = y9c_response.data
+        mdrm_data = mdrm_response.data
+
+        # Create DataFrames with composite keys
+        y9c_df = pd.DataFrame(y9c_data)
+        mdrm_df = pd.DataFrame(mdrm_data)
+
+        # Create composite keys
+        y9c_df['composite_key'] = y9c_df['mnemonic'] + y9c_df['item_code'].astype(str)
+        mdrm_df['composite_key'] = mdrm_df['mnemonic'] + mdrm_df['item_code'].astype(str)
+
+        # Merge datasets
+        merged_df = pd.merge(
+            y9c_df,
+            mdrm_df,
+            on='composite_key',
+            how='left',
+            suffixes=('', '_mdrm')
+            
+        # Convert dates and filter valid mappings
+        merged_df['report_date'] = pd.to_datetime(merged_df['report_date'])
+        merged_df['start_date'] = pd.to_datetime(merged_df['start_date'])
+        merged_df['end_date'] = pd.to_datetime(merged_df['end_date'])
+        
+        valid_mappings = merged_df[
+            (merged_df['report_date'] >= merged_df['start_date']) &
+            (merged_df['report_date'] <= merged_df['end_date'])
+        ]
+
+        # Pivot for analysis
+        pivot_df = valid_mappings.pivot_table(
             index=['rssd_id', 'report_date'],
             columns='item_name',
             values='item_value',
             aggfunc='first'
         ).reset_index()
 
-        return df, pivot_df
+        return valid_mappings, pivot_df
 
     except Exception as e:
-        st.error(f"🚨 Data Loading Failed: {str(e)}")
+        st.error(f"Data Loading Error: {str(e)}")
         return pd.DataFrame(), pd.DataFrame()
 
-# Smart formatting based on metric type
+# Smart formatting function
 def format_metric(value, metric_name):
     if pd.isna(value):
         return "N/A"
@@ -99,31 +76,15 @@ def format_metric(value, metric_name):
         return f"${value/1e6:.2f}M"
     return f"${value:,.2f}"
 
-# Main application
 def main():
-    # Configure page
     st.set_page_config(
         page_title="Regulatory Analytics Dashboard",
         layout="wide",
-        page_icon="📊",
-        initial_sidebar_state="expanded"
+        page_icon="📊"
     )
 
-    # Custom styling
-    st.markdown("""
-    <style>
-        .metric-label {
-            font-size: 1rem !important;
-            color: #666 !important;
-        }
-        .stSelectbox [data-baseweb=select] {
-            min-width: 240px;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.title("FR Y-9C Regulatory Analytics Dashboard")
-    st.caption("Dynamic dashboard powered by Supabase regulatory data")
+    st.title("FR Y-9C Regulatory Dashboard")
+    st.caption("Dynamic reporting powered by Supabase data")
 
     # Load data
     raw_df, analysis_df = load_data()
@@ -133,8 +94,8 @@ def main():
         st.header("🔍 Filters")
         
         # Date range
-        min_date = analysis_df['report_date'].min().date()
-        max_date = analysis_df['report_date'].max().date()
+        min_date = analysis_df['report_date'].min().date() if not analysis_df.empty else datetime.today().date()
+        max_date = analysis_df['report_date'].max().date() if not analysis_df.empty else datetime.today().date()
         date_range = st.date_input(
             "Reporting Period",
             value=(min_date, max_date),
@@ -145,8 +106,8 @@ def main():
         # Institution selector
         institutions = st.multiselect(
             "Select Institutions",
-            options=analysis_df['rssd_id'].unique(),
-            default=analysis_df['rssd_id'].unique()[:3]
+            options=analysis_df['rssd_id'].unique() if not analysis_df.empty else [],
+            default=analysis_df['rssd_id'].unique()[:3] if not analysis_df.empty else []
         )
 
         # Metric selection
@@ -155,37 +116,22 @@ def main():
         selected_metrics = st.multiselect(
             "Key Metrics",
             options=available_metrics,
-            default=available_metrics[:3]
+            default=available_metrics[:3] if available_metrics else []
         )
 
-        # Reporting form filter
-        reporting_forms = st.multiselect(
-            "Reporting Forms",
-            options=raw_df['reporting_form'].unique(),
-            default=['FFIEC 101']
-        )
-
-    # Filter data based on selections
+    # Filter data
     filtered_df = analysis_df[
         (analysis_df['report_date'].between(*date_range)) &
         (analysis_df['rssd_id'].isin(institutions))
-    ]
-    
-    # Filter by reporting forms using raw data
-    if reporting_forms:
-        form_filtered_items = raw_df[
-            raw_df['reporting_form'].isin(reporting_forms)
-        ]['item_name'].unique()
-        filtered_df = filtered_df[['rssd_id', 'report_date'] + 
-                              list(form_filtered_items)]
+    ] if not analysis_df.empty else pd.DataFrame()
 
     # KPI Cards
     st.header("📈 Key Performance Indicators")
     if not filtered_df.empty:
+        cols = st.columns(len(selected_metrics))
         latest_date = filtered_df['report_date'].max()
         latest_data = filtered_df[filtered_df['report_date'] == latest_date]
         
-        cols = st.columns(len(selected_metrics))
         for idx, metric in enumerate(selected_metrics):
             with cols[idx]:
                 value = latest_data[metric].mean()
@@ -198,7 +144,7 @@ def main():
     else:
         st.warning("No data available for selected filters")
 
-    # Main visualization tabs
+    # Visualization Tabs
     tab1, tab2, tab3 = st.tabs(["📅 Trends", "🏦 Peer Comparison", "📥 Data"])
 
     with tab1:
@@ -210,57 +156,43 @@ def main():
                 y=selected_metrics,
                 color='rssd_id',
                 markers=True,
-                title="Metric Trends Over Time",
-                labels={'value': 'Amount', 'report_date': 'Date'}
+                title="Metric Trends Over Time"
             )
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Select metrics to view trends")
 
     with tab2:
-        st.subheader("Peer Group Analysis")
+        st.subheader("Peer Comparison")
         if not filtered_df.empty:
             comp_date = st.selectbox(
                 "Comparison Date",
                 filtered_df['report_date'].unique()
             )
-            
             peer_df = filtered_df[filtered_df['report_date'] == comp_date]
-            if not peer_df.empty:
-                fig = px.box(
-                    peer_df.melt(id_vars=['rssd_id'], 
-                                value_vars=selected_metrics),
-                    x='variable',
-                    y='value',
-                    title="Peer Institution Distribution"
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No data available for comparison")
+            fig = px.box(
+                peer_df.melt(id_vars=['rssd_id'], value_vars=selected_metrics),
+                x='variable',
+                y='value',
+                title="Peer Institution Distribution"
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
     with tab3:
         st.subheader("Data Explorer")
         if not filtered_df.empty:
-            # Show raw data with formatting
-            st.data_editor(
+            st.dataframe(
                 filtered_df,
                 column_config={
                     "report_date": "Date",
                     "rssd_id": "Institution ID",
                 },
-                use_container_width=True,
-                hide_index=True
+                use_container_width=True
             )
-
-            # Export functionality
             st.download_button(
-                label="📥 Export to CSV",
-                data=filtered_df.to_csv(index=False).encode(),
-                file_name="regulatory_data.csv",
-                mime="text/csv"
+                "📥 Export Data",
+                filtered_df.to_csv(index=False).encode(),
+                "regulatory_data.csv",
+                "text/csv"
             )
-        else:
-            st.info("No data to display")
 
 if __name__ == "__main__":
     main()
