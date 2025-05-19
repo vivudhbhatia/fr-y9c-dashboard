@@ -21,12 +21,15 @@ HEADERS = {
 # ─── HELPERS ───
 def fetch_full_data():
     url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data"
-    r = requests.get(url, headers=HEADERS)
     try:
+        r = requests.get(url, headers=HEADERS)
         records = r.json()
+
         if not isinstance(records, list):
             st.error("❌ Supabase returned unexpected response format.")
+            st.code(str(records))  # Show actual response
             return pd.DataFrame()
+
         df = pd.DataFrame(records)
     except Exception as e:
         st.error(f"❌ Failed to parse Supabase response: {e}")
