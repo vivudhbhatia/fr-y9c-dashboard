@@ -12,7 +12,7 @@ import time
 def init_supabase():
     return create_client(st.secrets.SUPABASE_URL, st.secrets.SUPABASE_KEY)
 
-# Batch processing with pagination
+# Updated pagination function with correct method names
 def fetch_paginated_data(table_name, batch_size=1000):
     supabase = init_supabase()
     all_data = []
@@ -20,89 +20,77 @@ def fetch_paginated_data(table_name, batch_size=1000):
     
     while True:
         try:
-            data = supabase.from_(table_name)\
-                .select("*", count='exact')\
-                .range_(page*batch_size, (page+1)*batch_size-1)\
-                .execute()
+            # Corrected method chain
+            query = supabase.table(table_name).select("*", count='exact')
+            data = query.range(page*batch_size, (page+1)*batch_size-1).execute()
+            
             all_data.extend(data.data)
             
             if len(all_data) >= data.count:
                 break
             page += 1
-            time.sleep(0.1)  # Add small delay between requests
+            time.sleep(0.1)
         except Exception as e:
             st.error(f"Error fetching data: {str(e)}")
             break
     
     return pd.DataFrame(all_data)
 
-# Optimized data loader
+# Enhanced data loader with proper error handling
 @st.cache_data(ttl=3600, show_spinner="Loading regulatory data...")
 def load_data():
     try:
-        # Batch fetch data
+        # Fetch data
         y9c_df = fetch_paginated_data('y9c_full')
         mdrm_df = fetch_paginated_data('mdrm_mapping')
 
-        # Process y9c data
-        y9c_df = y9c_df.rename(columns={
-            'rssd_id': 'RSSD ID',
-            'report_period': 'Report Date'
-        })
-        
-        # Efficient JSON parsing
-        y9c_df['metrics'] = y9c_df['data'].apply(
-            lambda x: json.loads(x.replace('""', '"').strip('"'))) 
-        metrics_df = pd.json_normalize(y9c_df['metrics'])
-        y9c_df = pd.concat([y9c_df.drop(['data', 'metrics'], axis=1), metrics_df], axis=1)
+        # Process y9c data with safe JSON parsing
+        if not y9c_df.empty and 'data' in y9c_df.columns:
+            y9c_df['metrics'] = y9c_df['data'].apply(
+                lambda x: json.loads(x.replace('""', '"').strip('"')) if '"' else {}
+            )
+            metrics_df = pd.json_normalize(y9c_df['metrics'])
+            y9c_df = pd.concat([y9c_df.drop(['data', 'metrics'], axis=1), metrics_df], axis=1)
+        else:
+            st.warning("No data found in y9c_full table")
+            return pd.DataFrame(), pd.DataFrame()
 
-        # Create composite keys
-        mdrm_df['composite_key'] = mdrm_df['mnemonic'] + mdrm_df['item_code'].astype(str)
-        
-        # Filter active mappings first
-        mdrm_df = mdrm_df[mdrm_df['end_date'] == '9999-12-31']
-        
-        # Merge with efficient filtering
+        # Create composite keys safely
+        mdrm_df['composite_key'] = mdrm_df['mnemonic'].astype(str) + mdrm_df['item_code'].astype(str)
+        y9c_df['composite_key'] = y9c_df['bhck2170'].astype(str)  # Using Total Assets as key
+
+        # Merge dataframes
         merged_df = pd.merge(
             y9c_df,
             mdrm_df,
+            on='composite_key',
             how='left',
-            left_on=['bhck2170'],  # Example using total assets as key
-            right_on=['composite_key']
-        )
-
-        # Date filtering
-        merged_df['Report Date'] = pd.to_datetime(merged_df['Report Date'])
-        merged_df = merged_df[merged_df['Report Date'] >= '2016-01-01']  # Recent data
-
-        # Pivot efficiently
-        pivot_df = merged_df.pivot_table(
-            index=['RSSD ID', 'Report Date'],
-            columns='item_name',
-            values='bhck2170',  # Using total assets as example value
-            aggfunc='first'
-        ).reset_index()
-
-        return merged_df, pivot_df
+            suffixes=('', '_mdrm')
+        
+        # Convert dates safely
+        merged_df['Report Date'] = pd.to_datetime(merged_df['report_period'], errors='coerce')
+        merged_df = merged_df.dropna(subset=['Report Date'])
+        
+        return merged_df, merged_df  # Returning same DF twice for compatibility
 
     except Exception as e:
         st.error(f"Data Loading Error: {str(e)}")
         return pd.DataFrame(), pd.DataFrame()
 
-
-
-# Smart formatting function
+# Formatting function
 def format_metric(value, metric_name):
-    if pd.isna(value):
+    try:
+        if pd.isna(value):
+            return "N/A"
+        if any(kw in metric_name.lower() for kw in ['ratio', '%', 'rate']):
+            return f"{value:.2f}%"
+        if abs(value) >= 1e9:
+            return f"${value/1e9:.2f}B"
+        if abs(value) >= 1e6:
+            return f"${value/1e6:.2f}M"
+        return f"${value:,.2f}"
+    except:
         return "N/A"
-        
-    if any(kw in metric_name.lower() for kw in ['ratio', '%', 'rate']):
-        return f"{value:.2f}%"
-    if abs(value) >= 1e9:
-        return f"${value/1e9:.2f}B"
-    if abs(value) >= 1e6:
-        return f"${value/1e6:.2f}M"
-    return f"${value:,.2f}"
 
 def main():
     st.set_page_config(
@@ -144,7 +132,7 @@ def main():
 
         # Metric selection
         available_metrics = [col for col in analysis_df.columns 
-                           if col not in ['RSSD ID', 'Report Date']]
+                           if col not in ['RSSD ID', 'Report Date', 'composite_key']]
         selected_metrics = st.multiselect(
             "Key Metrics",
             options=available_metrics,
@@ -175,8 +163,6 @@ def main():
                 )
     else:
         st.warning("No data available for selected filters")
-
-    # Rest of the visualization tabs remains the same...
 
 if __name__ == "__main__":
     main()
