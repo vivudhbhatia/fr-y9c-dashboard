@@ -52,7 +52,7 @@ def load_data():
         
         # Efficient JSON parsing
         y9c_df['metrics'] = y9c_df['data'].apply(
-            lambda x: json.loads(x.replace('""', '"').strip('"')) 
+            lambda x: json.loads(x.replace('""', '"').strip('"'))) 
         metrics_df = pd.json_normalize(y9c_df['metrics'])
         y9c_df = pd.concat([y9c_df.drop(['data', 'metrics'], axis=1), metrics_df], axis=1)
 
