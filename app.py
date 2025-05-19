@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import os
+import json
 
 # ─── ENV CONFIG ───
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -19,28 +20,54 @@ HEADERS = {
 }
 
 # ─── HELPERS ───
-def fetch_full_data():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&order=report_period.desc&limit=5000"
+def safe_parse_json(x):
     try:
-        r = requests.get(url, headers=HEADERS)
-        records = r.json()
+        if isinstance(x, str):
+            return json.loads(json.loads(x)) if x.strip().startswith('"{"') else json.loads(x)
+        elif isinstance(x, dict):
+            return x
+        return {}
+    except Exception:
+        return {}
 
-        if not isinstance(records, list):
-            st.error("❌ Supabase returned unexpected response format.")
-            st.code(str(records))  # Show actual response
+def infer_total_assets(x):
+    try:
+        return float(x.get("bhck2170") or x.get("bhck0337") or x.get("bhck0020") or 0)
+    except Exception:
+        return 0
+
+def fetch_full_data():
+    rows = []
+    page_size = 1000
+    offset = 0
+
+    while True:
+        url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,data&offset={offset}&limit={page_size}"
+        try:
+            r = requests.get(url, headers=HEADERS)
+            if not r.ok:
+                st.error(f"❌ Supabase error: {r.status_code} – {r.text}")
+                return pd.DataFrame()
+            page = r.json()
+            if not page:
+                break
+            rows.extend(page)
+            if len(page) < page_size:
+                break
+            offset += page_size
+        except Exception as e:
+            st.error(f"❌ Supabase request failed: {e}")
             return pd.DataFrame()
 
-        df = pd.DataFrame(records)
-    except Exception as e:
-        st.error(f"❌ Failed to parse Supabase response: {e}")
+    if not rows:
         return pd.DataFrame()
 
-    if df.empty:
-        return df
-
-    df["parsed"] = df["data"].apply(lambda x: x if isinstance(x, dict) else {})
-    df["total_assets"] = df["parsed"].apply(lambda x: float(x.get("bhck2170", 0)))
+    df = pd.json_normalize(rows)
+    df["rssd_id"] = df["rssd_id"].astype(str)
+    df["parsed"] = df["data"].apply(safe_parse_json)
     df["bank_name"] = df["parsed"].apply(lambda x: x.get("rssd9017", "Unknown"))
+    df["report_period"] = df["parsed"].apply(lambda x: str(x.get("rssd9999")))
+    df["total_assets"] = df["parsed"].apply(lambda x: infer_total_assets(x))
     df["asset_bucket"] = df["total_assets"].apply(bucketize_assets)
     return df
 
