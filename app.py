@@ -6,14 +6,15 @@ from datetime import datetime
 from io import BytesIO
 import json
 import time
+import ast
 
 # Initialize Supabase Client
 @st.cache_resource
 def init_supabase():
     return create_client(st.secrets.SUPABASE_URL, st.secrets.SUPABASE_KEY)
 
-# Paginated data fetcher
-def fetch_paginated_data(table_name, batch_size=1000):
+# Optimized pagination with smaller batches
+def fetch_paginated_data(table_name, batch_size=500):
     supabase = init_supabase()
     all_data = []
     page = 0
@@ -29,31 +30,33 @@ def fetch_paginated_data(table_name, batch_size=1000):
             if len(all_data) >= response.count:
                 break
             page += 1
-            time.sleep(0.1)
+            time.sleep(0.2)  # Increased delay between requests
         except Exception as e:
             st.error(f"Error fetching data: {str(e)}")
             break
     
     return pd.DataFrame(all_data)
 
-# Data loader with proper closure
+# Robust data loader with improved JSON handling
 @st.cache_data(ttl=3600, show_spinner="Loading regulatory data...")
 def load_data():
     try:
-        # Fetch data
+        # Fetch data with smaller batches
         y9c_df = fetch_paginated_data('y9c_full')
         mdrm_df = fetch_paginated_data('mdrm_mapping')
 
-        # Process y9c data
-        y9c_df = y9c_df.rename(columns={
-            'rssd_id': 'RSSD ID',
-            'report_period': 'Report Date'
-        })
-        
-        # JSON parsing with error handling
+        # Process y9c data with safer JSON parsing
         if not y9c_df.empty and 'data' in y9c_df.columns:
+            def safe_json_parse(x):
+                try:
+                    # Handle different quote formats
+                    cleaned = x.strip('"').replace('\\"', '"')
+                    return ast.literal_eval(cleaned)
+                except:
+                    return {}
+            
             y9c_df['metrics'] = y9c_df['data'].apply(
-                lambda x: json.loads(x.replace('""', '"').strip('"')) if pd.notna(x) else {}
+                lambda x: safe_json_parse(x) if pd.notna(x) else {}
             )
             metrics_df = pd.json_normalize(y9c_df['metrics'])
             y9c_df = pd.concat([y9c_df.drop(['data', 'metrics'], axis=1), metrics_df], axis=1)
@@ -61,28 +64,34 @@ def load_data():
             st.warning("No data found in y9c_full table")
             return pd.DataFrame(), pd.DataFrame()
 
-        # Create composite keys
-        mdrm_df['composite_key'] = mdrm_df['mnemonic'].astype(str) + mdrm_df['item_code'].astype(str)
-        y9c_df['composite_key'] = y9c_df['bhck2170'].astype(str)  # Example key
+        # Create composite keys with validation
+        mdrm_df['composite_key'] = mdrm_df['mnemonic'].astype(str).str.strip() + '_' + mdrm_df['item_code'].astype(str).str.strip()
+        y9c_df['composite_key'] = y9c_df['bhck2170'].astype(str).str.strip()
 
-        # Merge dataframes with proper closure
+        # Filter active mappings first to reduce merge size
+        mdrm_active = mdrm_df[mdrm_df['end_date'] == '9999-12-31']
+        
+        # Merge with filtered data
         merged_df = pd.merge(
             y9c_df,
-            mdrm_df,
+            mdrm_active,
             on='composite_key',
-            how='left',
+            how='inner',  # Use inner join for better performance
             suffixes=('', '_mdrm')
-        )  # Closing parenthesis added here
+        )
 
-        # Date handling
+        # Convert dates with validation
         merged_df['Report Date'] = pd.to_datetime(merged_df['Report Date'], errors='coerce')
         merged_df = merged_df.dropna(subset=['Report Date'])
+        merged_df = merged_df[merged_df['Report Date'] >= '2016-01-01']  # Filter early
         
         return merged_df, merged_df
 
     except Exception as e:
         st.error(f"Data Loading Error: {str(e)}")
         return pd.DataFrame(), pd.DataFrame()
+
+
 
 # Formatting function
 def format_metric(value, metric_name):
