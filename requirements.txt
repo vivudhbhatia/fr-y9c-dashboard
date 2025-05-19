@@ -3,3 +3,4 @@ pandas
 requests
 plotly
 datetime
+supabase>=2.3.1
