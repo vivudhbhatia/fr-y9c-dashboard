@@ -5,28 +5,44 @@ from supabase import create_client
 from datetime import datetime
 from io import BytesIO
 import json
+import time
 
 # Initialize Supabase Client
 @st.cache_resource
 def init_supabase():
     return create_client(st.secrets.SUPABASE_URL, st.secrets.SUPABASE_KEY)
 
-# Enhanced data loader with proper column handling
+# Batch processing with pagination
+def fetch_paginated_data(table_name, batch_size=1000):
+    supabase = init_supabase()
+    all_data = []
+    page = 0
+    
+    while True:
+        try:
+            data = supabase.from_(table_name)\
+                .select("*", count='exact')\
+                .range_(page*batch_size, (page+1)*batch_size-1)\
+                .execute()
+            all_data.extend(data.data)
+            
+            if len(all_data) >= data.count:
+                break
+            page += 1
+            time.sleep(0.1)  # Add small delay between requests
+        except Exception as e:
+            st.error(f"Error fetching data: {str(e)}")
+            break
+    
+    return pd.DataFrame(all_data)
+
+# Optimized data loader
 @st.cache_data(ttl=3600, show_spinner="Loading regulatory data...")
 def load_data():
-    supabase = init_supabase()
-    
     try:
-        # Load data from both tables
-        y9c_response = supabase.table('y9c_full').select('*').execute()
-        mdrm_response = supabase.table('mdrm_mapping').select('*').execute()
-        
-        y9c_data = y9c_response.data
-        mdrm_data = mdrm_response.data
-
-        # Create DataFrames with proper column names
-        y9c_df = pd.DataFrame(y9c_data)
-        mdrm_df = pd.DataFrame(mdrm_data)
+        # Batch fetch data
+        y9c_df = fetch_paginated_data('y9c_full')
+        mdrm_df = fetch_paginated_data('mdrm_mapping')
 
         # Process y9c data
         y9c_df = y9c_df.rename(columns={
@@ -34,54 +50,46 @@ def load_data():
             'report_period': 'Report Date'
         })
         
-        # Extract metrics from JSON data
-        def parse_json_data(row):
-            try:
-                data_str = row['data'].replace('""', '"').strip('"')
-                return json.loads(data_str)
-            except Exception as e:
-                st.error(f"Error parsing JSON: {str(e)}")
-                return {}
-            
-        y9c_df['metrics'] = y9c_df.apply(parse_json_data, axis=1)
+        # Efficient JSON parsing
+        y9c_df['metrics'] = y9c_df['data'].apply(
+            lambda x: json.loads(x.replace('""', '"').strip('"')) 
         metrics_df = pd.json_normalize(y9c_df['metrics'])
         y9c_df = pd.concat([y9c_df.drop(['data', 'metrics'], axis=1), metrics_df], axis=1)
 
         # Create composite keys
-        y9c_df['composite_key'] = y9c_df['bhck2170'].astype(str)  # Using total assets as key example
         mdrm_df['composite_key'] = mdrm_df['mnemonic'] + mdrm_df['item_code'].astype(str)
-
-        # Merge datasets
+        
+        # Filter active mappings first
+        mdrm_df = mdrm_df[mdrm_df['end_date'] == '9999-12-31']
+        
+        # Merge with efficient filtering
         merged_df = pd.merge(
             y9c_df,
             mdrm_df,
-            on='composite_key',
             how='left',
-            suffixes=('', '_mdrm'))
-            
-        # Convert dates and filter valid mappings
-        merged_df['Report Date'] = pd.to_datetime(merged_df['Report Date'])
-        merged_df['start_date'] = pd.to_datetime(merged_df['start_date'])
-        merged_df['end_date'] = pd.to_datetime(merged_df['end_date'])
-        
-        valid_mappings = merged_df[
-            (merged_df['Report Date'] >= merged_df['start_date']) &
-            (merged_df['Report Date'] <= merged_df['end_date'])
-        ]
+            left_on=['bhck2170'],  # Example using total assets as key
+            right_on=['composite_key']
+        )
 
-        # Pivot for analysis
-        pivot_df = valid_mappings.pivot_table(
+        # Date filtering
+        merged_df['Report Date'] = pd.to_datetime(merged_df['Report Date'])
+        merged_df = merged_df[merged_df['Report Date'] >= '2016-01-01']  # Recent data
+
+        # Pivot efficiently
+        pivot_df = merged_df.pivot_table(
             index=['RSSD ID', 'Report Date'],
             columns='item_name',
-            values='item_value',
+            values='bhck2170',  # Using total assets as example value
             aggfunc='first'
         ).reset_index()
 
-        return valid_mappings, pivot_df
+        return merged_df, pivot_df
 
     except Exception as e:
         st.error(f"Data Loading Error: {str(e)}")
         return pd.DataFrame(), pd.DataFrame()
+
+
 
 # Smart formatting function
 def format_metric(value, metric_name):
