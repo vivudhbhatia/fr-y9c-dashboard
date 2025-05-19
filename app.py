@@ -20,7 +20,7 @@ HEADERS = {
 
 # ─── HELPERS ───
 def fetch_full_data():
-    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data"
+    url = f"{SUPABASE_URL}/rest/v1/y9c_full?select=rssd_id,report_period,data&order=report_period.desc&limit=5000"
     try:
         r = requests.get(url, headers=HEADERS)
         records = r.json()
