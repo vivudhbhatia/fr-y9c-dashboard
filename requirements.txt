@@ -7,6 +7,7 @@ pandarallel
 backoff
 python-dotenv
 supabase
+matplotlib
 
 supabase>=2.3.1
 pandas>=2.0.0
