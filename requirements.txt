@@ -6,7 +6,7 @@ datetime
 pandarallel 
 backoff
 python-dotenv
-supabase python-dotenv
+supabase
 
 supabase>=2.3.1
 pandas>=2.0.0
