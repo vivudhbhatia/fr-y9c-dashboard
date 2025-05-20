@@ -88,7 +88,7 @@ def load_data():
         st.write("🔨 Parsing JSON metrics...")
         with st.spinner("Processing financial metrics..."):
             y9c_df['metrics'] = y9c_df['data'].parallel_apply(
-                lambda x: ast.literal_eval(x.strip('"').replace('\\"', '"'))  # Requires pandarallel
+                lambda x: ast.literal_eval(x.strip('"').replace('\\"', '"')))  # Requires pandarallel
             metrics_df = pd.json_normalize(y9c_df['metrics'])
             y9c_df = pd.concat([y9c_df.drop(['data', 'metrics'], axis=1), metrics_df], axis=1)
 
