@@ -1,21 +1,21 @@
-# app.py
+# chatbot.py
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from supabase import create_client, ClientOptions
 import openai
 import backoff
+import json
 from datetime import datetime
 
 # Configuration
-ESSENTIAL_COLS = ['report_period', 'bhck2170', 'bhck2948', 'bhck3210']
-MAX_ROWS = 5000
-PAGE_SIZE = 500
+ESSENTIAL_COLS = ['bhck2170', 'bhck2948', 'bhck3210']  # JSON keys to extract
 CACHE_TTL = 3600  # 1 hour cache
+AI_MODEL = "gpt-4o"  # Updated to GPT-4o model
 
 @backoff.on_exception(backoff.expo, Exception, max_tries=3)
 def init_supabase():
-    """Initialize Supabase client with connection pooling"""
+    """Initialize Supabase client with optimized settings"""
     try:
         return create_client(
             st.secrets.SUPABASE_URL,
@@ -33,32 +33,40 @@ def init_supabase():
 supabase = init_supabase()
 openai.api_key = st.secrets.OPENAI_API_KEY
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner="Loading financial data...")
+@st.cache_data(ttl=CACHE_TTL, show_spinner="📊 Loading financial data...")
 @backoff.on_exception(backoff.expo, Exception, max_tries=3)
 def fetch_financial_data():
-    """Optimized data fetch with pagination and column selection"""
+    """Fetch and process JSON data from Supabase"""
     try:
-        all_data = []
-        page = 0
-        
-        while len(all_data) < MAX_ROWS:
-            response = supabase.table('y9c_full') \
-                .select(','.join(ESSENTIAL_COLS)) \
-                .order('report_period', desc=True) \
-                .range(page*PAGE_SIZE, (page+1)*PAGE_SIZE-1) \
-                .execute()
-            
-            if not response.data:
-                break
-                
-            all_data.extend(response.data)
-            page += 1
+        response = supabase.table('y9c_full') \
+                   .select('data,report_period') \
+                   .order('report_period', desc=True) \
+                   .limit(1000) \
+                   .execute()
 
-        df = pd.DataFrame(all_data)
-        df['report_period'] = pd.to_datetime(df['report_period'])
-        return df.drop_duplicates('report_period').sort_values('report_period', ascending=False)
+        processed_data = []
+        for row in response.data:
+            try:
+                # Clean and parse JSON data
+                json_data = row['data'].replace('""', '"').replace('\\"', '"')
+                parsed = json.loads(json_data)
+                
+                # Extract essential metrics
+                record = {
+                    'report_period': pd.to_datetime(row['report_period']),
+                }
+                for col in ESSENTIAL_COLS:
+                    record[col] = float(parsed.get(col, 0)) if parsed.get(col) not in [None, ""] else 0.0
+                
+                processed_data.append(record)
+            except Exception as e:
+                st.error(f"⚠️ Error processing row: {str(e)}")
+                continue
+
+        df = pd.DataFrame(processed_data)
+        return df.sort_values('report_period', ascending=False).drop_duplicates()
     except Exception as e:
-        st.error(f"📊 Data Error: {str(e)}")
+        st.error(f"📊 Data Processing Error: {str(e)}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=CACHE_TTL)
@@ -66,43 +74,62 @@ def get_metric_mappings():
     """Fetch metric metadata with error handling"""
     try:
         response = supabase.table('mdrm_mapping') \
-            .select('item_code, item_name') \
-            .execute()
+                   .select('item_code,item_name') \
+                   .execute()
         return {item['item_code']: item['item_name'] for item in response.data}
     except Exception as e:
         st.error(f"📖 Metadata Error: {str(e)}")
         return {}
 
-def create_analysis_prompt(query, context):
-    """Structured prompt for financial analysis"""
-    metric_list = '\n'.join(
-        [f"- {code}: {info['name']}" 
-         for code, info in context['metrics'].items()]
-    )
+def create_analysis_context(df, mappings):
+    """Create structured analysis context"""
+    if df.empty:
+        return {}
     
-    return f"""Analyze banking data with these metrics:
-{metric_list}
-
-User query: {query}
-
-Respond EXACTLY in this format:
-ANALYSIS: [text analysis using only available metrics]
-VISUALIZATION: [line|bar|scatter|none]
-METRICS: [comma-separated codes from: {context['available_codes']}]
-"""
+    context = {
+        'report_period': df['report_period'].max().strftime('%Y-%m-%d'),
+        'metrics': {},
+        'available_codes': ESSENTIAL_COLS
+    }
+    
+    for col in ESSENTIAL_COLS:
+        context['metrics'][col] = {
+            'name': mappings.get(col, col),
+            'current': df[col].iloc[0] if not df.empty else 0,
+            'history': {
+                'min': df[col].min(),
+                'max': df[col].max(),
+                'mean': df[col].mean()
+            }
+        }
+    
+    return context
 
 @backoff.on_exception(backoff.expo, Exception, max_tries=3)
 def generate_ai_insight(query, context):
-    """Get AI analysis with validation"""
-    if not context.get('metrics'):
+    """Generate insights using GPT-4o"""
+    if not context or not context.get('metrics'):
         return ""
     
+    prompt = f"""Analyze banking metrics with this context:
+Latest Report Date: {context['report_period']}
+Available Metrics:
+{'\n'.join([f"- {code}: {info['name']} (Current: {info['current']:,.0f})" for code, info in context['metrics'].items()])}
+
+User Query: {query}
+
+Respond STRICTLY in this format:
+ANALYSIS: [comprehensive analysis with numbers]
+VISUALIZATION: [line|bar|scatter|none]
+METRICS: [comma-separated metric codes]
+"""
+    
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
+        response = openai.chat.completions.create(
+            model=AI_MODEL,
             messages=[
-                {"role": "system", "content": "You are a senior banking analyst. Use only the provided metrics."},
-                {"role": "user", "content": create_analysis_prompt(query, context)}
+                {"role": "system", "content": "You are a senior banking analyst. Use only provided metrics and numbers."},
+                {"role": "user", "content": prompt}
             ],
             temperature=0.3,
             max_tokens=500,
@@ -110,11 +137,11 @@ def generate_ai_insight(query, context):
         )
         return response.choices[0].message.content
     except Exception as e:
-        st.error(f"🤖 AI Error: {str(e)}")
+        st.error(f"🤖 AI Analysis Error: {str(e)}")
         return ""
 
 def create_visualization(df, viz_type, metrics):
-    """Robust visualization generator"""
+    """Create interactive visualizations"""
     try:
         fig, ax = plt.subplots(figsize=(10, 4))
         df = df.sort_values('report_period')
@@ -131,8 +158,8 @@ def create_visualization(df, viz_type, metrics):
         else:
             return None
         
-        plt.grid(True)
         plt.xticks(rotation=45)
+        plt.grid(True)
         plt.tight_layout()
         return fig
     except Exception as e:
@@ -140,61 +167,46 @@ def create_visualization(df, viz_type, metrics):
         return None
 
 def main():
-    st.set_page_config(page_title="Banking Dashboard", layout="wide")
-    st.title("🏦 Regulatory Banking Analytics")
+    st.set_page_config(page_title="Banking Analytics", layout="wide")
+    st.title("🏦 Regulatory Banking Dashboard")
     
-    # Data loading
+    # Load data
     df = fetch_financial_data()
     mappings = get_metric_mappings()
+    context = create_analysis_context(df, mappings)
     
     if df.empty:
         st.warning("⚠️ No financial data available")
         return
     
-    # Create analysis context
-    context = {
-        'report_period': df['report_period'].max().strftime('%Y-%m-%d'),
-        'metrics': {},
-        'available_codes': [c for c in ESSENTIAL_COLS if c != 'report_period']
-    }
-    
-    for code in context['available_codes']:
-        context['metrics'][code] = {
-            'name': mappings.get(code, code),
-            'current': df[code].iloc[0],
-            'history': {
-                'min': df[code].min(),
-                'max': df[code].max(),
-                'mean': df[code].mean()
-            }
-        }
-
     # Sidebar controls
     with st.sidebar:
         st.header("Data Overview")
         st.metric("Latest Report", context['report_period'])
         st.metric("Data Points", len(df))
         
-        with st.expander("📋 Metric Glossary"):
-            for code, info in context['metrics'].items():
-                st.write(f"**{code}**")
-                st.caption(info['name'])
-                st.write(f"Current: {info['current']:,.0f}")
-                st.write(f"Historical Range: {info['history']['min']:,.0f} - {info['history']['max']:,.0f}")
+        with st.expander("📋 Metric Details"):
+            for code in ESSENTIAL_COLS:
+                info = context['metrics'][code]
+                st.write(f"**{code}**: {info['name']}")
+                cols = st.columns(2)
+                cols[0].metric("Current", f"{info['current']:,.0f}")
+                cols[1].metric("Historical Range", 
+                              f"{info['history']['min']:,.0f} - {info['history']['max']:,.0f}")
 
     # Main interface
     query = st.text_input(
         "📝 Enter analysis request:",
-        placeholder="E.g., Analyze capital adequacy trends",
-        help="Try: Compare assets vs liabilities, Show equity growth rate"
+        placeholder="E.g., Analyze assets vs liabilities trend",
+        help="Try: Compare capital adequacy ratios, Show equity growth over time"
     )
     
     if query:
-        with st.spinner("🔍 Analyzing..."):
+        with st.spinner("🔍 Analyzing with GPT-4o..."):
             response = generate_ai_insight(query, context)
         
         if response:
-            # Parse AI response
+            # Parse response
             analysis = viz_type = metrics = None
             for line in response.split('\n'):
                 line = line.strip()
@@ -204,15 +216,15 @@ def main():
                     viz_type = line.replace('VISUALIZATION:', '').strip().lower()
                 elif line.startswith('METRICS:'):
                     metrics = [m.strip() for m in line.replace('METRICS:', '').split(',')]
-                    metrics = [m for m in metrics if m in context['available_codes']]
+                    metrics = [m for m in metrics if m in ESSENTIAL_COLS]
             
             # Display results
             if analysis:
-                st.subheader("Analysis")
+                st.subheader("AI Analysis")
                 st.write(analysis)
                 
             if viz_type and viz_type != 'none' and metrics:
-                st.subheader("Visualization")
+                st.subheader("Data Visualization")
                 fig = create_visualization(df, viz_type, metrics)
                 if fig:
                     st.pyplot(fig)
