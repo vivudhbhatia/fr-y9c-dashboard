@@ -15,20 +15,20 @@ AI_MODEL = "gpt-4o"  # Updated to GPT-4o model
 
 @backoff.on_exception(backoff.expo, Exception, max_tries=3)
 def init_supabase():
-    """Initialize Supabase client with optimized settings"""
+    """Initialize Supabase client with optimized timeouts"""
     try:
         return create_client(
             st.secrets.SUPABASE_URL,
             st.secrets.SUPABASE_KEY,
             options=ClientOptions(
-                postgrest_client_timeout=60,
+                postgrest_client_timeout=120,  # Increased from 60 to 120 seconds
                 schema='public',
-                headers={'Content-Type': 'application/json'}
+                headers={
+                    'Content-Type': 'application/json',
+                    'Timeout-Override': '120000'  # Additional timeout header (milliseconds)
+                }
             )
         )
-    except Exception as e:
-        st.error(f"🔥 Connection Failed: {str(e)}")
-        st.stop()
 
 supabase = init_supabase()
 openai.api_key = st.secrets.OPENAI_API_KEY
