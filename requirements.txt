@@ -11,6 +11,17 @@ matplotlib
 openai
 
 
+streamlit>=1.45.1
+pandas>=2.2.3
+requests>=2.32.3
+plotly>=6.1.1
+pandarallel>=1.6.5
+backoff>=2.2.1
+python-dotenv>=1.1.0
+supabase>=2.15.1
+matplotlib>=3.10.3
+openai>=1.79.0
+python-dateutil>=2.9.0  # Add this line
 supabase>=2.3.1
 pandas>=2.0.0
 plotly>=5.0.0
