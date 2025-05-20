@@ -3,94 +3,115 @@ import pandas as pd
 import plotly.express as px
 from supabase import create_client
 from datetime import datetime
-from io import BytesIO
 import json
 import time
 import ast
+import traceback
 
-# Initialize Supabase Client
+# Initialize Supabase Client with error handling
 @st.cache_resource
 def init_supabase():
-    return create_client(st.secrets.SUPABASE_URL, st.secrets.SUPABASE_KEY)
+    try:
+        return create_client(st.secrets.SUPABASE_URL, st.secrets.SUPABASE_KEY)
+    except Exception as e:
+        st.error(f"Supabase initialization failed: {str(e)}")
+        st.stop()
 
-# Optimized pagination with smaller batches
+# Enhanced pagination with debug logging
 def fetch_paginated_data(table_name, batch_size=500):
     supabase = init_supabase()
     all_data = []
     page = 0
     
-    while True:
-        try:
+    try:
+        while True:
             response = supabase.table(table_name)\
                          .select("*", count='exact')\
                          .range(page*batch_size, (page+1)*batch_size-1)\
                          .execute()
+            
+            st.write(f"Fetched {len(response.data)} records from {table_name}")
             all_data.extend(response.data)
             
             if len(all_data) >= response.count:
                 break
             page += 1
-            time.sleep(0.2)  # Increased delay between requests
-        except Exception as e:
-            st.error(f"Error fetching data: {str(e)}")
-            break
+            time.sleep(0.2)
+            
+    except Exception as e:
+        st.error(f"Error fetching {table_name}: {str(e)}")
+        st.stop()
     
     return pd.DataFrame(all_data)
 
-# Robust data loader with improved JSON handling
+# Robust data loader with detailed error reporting
 @st.cache_data(ttl=3600, show_spinner="Loading regulatory data...")
 def load_data():
     try:
-        # Fetch data with smaller batches
+        st.write("Starting data load...")
+        
+        # Fetch data
         y9c_df = fetch_paginated_data('y9c_full')
         mdrm_df = fetch_paginated_data('mdrm_mapping')
+        st.write(f"Raw y9c data: {y9c_df.shape)} rows")
+        st.write(f"Raw mdrm data: {mdrm_df.shape)} rows")
 
-        # Process y9c data with safer JSON parsing
+        # JSON parsing with detailed error handling
         if not y9c_df.empty and 'data' in y9c_df.columns:
             def safe_json_parse(x):
                 try:
-                    # Handle different quote formats
+                    if not isinstance(x, str):
+                        return {}
                     cleaned = x.strip('"').replace('\\"', '"')
                     return ast.literal_eval(cleaned)
-                except:
+                except Exception as e:
+                    st.write(f"Failed to parse JSON: {x}")
+                    st.write(f"Error: {str(e)}")
                     return {}
             
-            y9c_df['metrics'] = y9c_df['data'].apply(
-                lambda x: safe_json_parse(x) if pd.notna(x) else {}
-            )
+            y9c_df['metrics'] = y9c_df['data'].apply(safe_json_parse)
             metrics_df = pd.json_normalize(y9c_df['metrics'])
+            st.write(f"Parsed metrics: {metrics_df.shape)} columns")
+            
             y9c_df = pd.concat([y9c_df.drop(['data', 'metrics'], axis=1), metrics_df], axis=1)
+            st.write(f"Merged y9c data: {y9c_df.shape)} rows")
         else:
             st.warning("No data found in y9c_full table")
             return pd.DataFrame(), pd.DataFrame()
 
-        # Create composite keys with validation
+        # Validate composite keys
+        required_columns = ['mnemonic', 'item_code', 'bhck2170']
+        missing = [col for col in required_columns if col not in mdrm_df.columns or col not in y9c_df.columns]
+        if missing:
+            st.error(f"Missing columns: {missing}")
+            st.stop()
+
+        # Create composite keys
         mdrm_df['composite_key'] = mdrm_df['mnemonic'].astype(str).str.strip() + '_' + mdrm_df['item_code'].astype(str).str.strip()
         y9c_df['composite_key'] = y9c_df['bhck2170'].astype(str).str.strip()
+        st.write("Composite keys created successfully")
 
-        # Filter active mappings first to reduce merge size
-        mdrm_active = mdrm_df[mdrm_df['end_date'] == '9999-12-31']
-        
-        # Merge with filtered data
+        # Merge dataframes
         merged_df = pd.merge(
             y9c_df,
-            mdrm_active,
+            mdrm_df[mdrm_df['end_date'] == '9999-12-31'],
             on='composite_key',
-            how='inner',  # Use inner join for better performance
+            how='inner',
             suffixes=('', '_mdrm')
         )
+        st.write(f"Merged dataset: {merged_df.shape)} rows")
 
-        # Convert dates with validation
-        merged_df['Report Date'] = pd.to_datetime(merged_df['Report Date'], errors='coerce')
+        # Date handling
+        merged_df['Report Date'] = pd.to_datetime(merged_df['report_period'], errors='coerce')
         merged_df = merged_df.dropna(subset=['Report Date'])
-        merged_df = merged_df[merged_df['Report Date'] >= '2016-01-01']  # Filter early
+        st.write(f"After date filtering: {merged_df.shape)} rows")
         
         return merged_df, merged_df
 
     except Exception as e:
-        st.error(f"Data Loading Error: {str(e)}")
-        return pd.DataFrame(), pd.DataFrame()
-
+        st.error(f"Critical error in load_data: {str(e)}")
+        st.text(traceback.format_exc())
+        st.stop()
 
 
 # Formatting function
