@@ -53,7 +53,7 @@ def load_data():
         # Fetch data
         y9c_df = fetch_paginated_data('y9c_full')
         mdrm_df = fetch_paginated_data('mdrm_mapping')
-        st.write(f"Raw y9c data: {y9c_df.shape)} rows")
+        st.write(f"Raw y9c data: {y9c_df.shape} rows")
         st.write(f"Raw mdrm data: {mdrm_df.shape)} rows")
 
         # JSON parsing with detailed error handling
