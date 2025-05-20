@@ -3,6 +3,7 @@ pandas
 requests
 plotly
 datetime
+pandarallel  
 
 supabase>=2.3.1
 pandas>=2.0.0
