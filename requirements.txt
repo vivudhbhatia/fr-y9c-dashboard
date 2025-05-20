@@ -9,6 +9,7 @@ python-dotenv
 supabase
 matplotlib
 openai
+backoff
 
 
 streamlit>=1.45.1
