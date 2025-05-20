@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from supabase import create_client
+from supabase import create_client, ClientOptions  # Modified import
 import openai
 import traceback
 
@@ -11,7 +11,7 @@ def init_supabase():
         return create_client(
             st.secrets.SUPABASE_URL,
             st.secrets.SUPABASE_KEY,
-            options={'postgrest_client_timeout': 30}
+            options=ClientOptions(postgrest_client_timeout=30)  # Corrected options
         )
     except Exception as e:
         st.error(f"Supabase connection failed: {str(e)}")
@@ -19,6 +19,7 @@ def init_supabase():
 
 supabase = init_supabase()
 openai.api_key = st.secrets.OPENAI_API_KEY
+
 
 def fetch_financial_data():
     """Fetch banking data from Supabase with error handling"""
