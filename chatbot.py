@@ -36,37 +36,57 @@ openai.api_key = st.secrets.OPENAI_API_KEY
 @st.cache_data(ttl=CACHE_TTL, show_spinner="📊 Loading financial data...")
 @backoff.on_exception(backoff.expo, Exception, max_tries=3)
 def fetch_financial_data():
-    """Fetch and process JSON data from Supabase"""
+    """Optimized data fetching with pagination and timeout handling"""
     try:
-        response = supabase.table('y9c_full') \
-                   .select('data,report_period') \
-                   .order('report_period', desc=True) \
-                   .limit(1000) \
-                   .execute()
-
         processed_data = []
-        for row in response.data:
-            try:
-                # Clean and parse JSON data
-                json_data = row['data'].replace('""', '"').replace('\\"', '"')
-                parsed = json.loads(json_data)
-                
-                # Extract essential metrics
-                record = {
-                    'report_period': pd.to_datetime(row['report_period']),
-                }
-                for col in ESSENTIAL_COLS:
-                    record[col] = float(parsed.get(col, 0)) if parsed.get(col) not in [None, ""] else 0.0
-                
-                processed_data.append(record)
-            except Exception as e:
-                st.error(f"⚠️ Error processing row: {str(e)}")
-                continue
+        page = 0
+        page_size = 200  # Reduced page size
+        max_pages = 10   # Safety limit
+        
+        # Get total count first
+        count_response = supabase.table('y9c_full')\
+                               .select('count', count='exact')\
+                               .execute()
+        total_records = count_response.count
+        
+        with st.spinner(f"Loading {total_records} records..."):
+            while page < max_pages:
+                response = supabase.table('y9c_full') \
+                            .select('data,report_period') \
+                            .order('report_period', desc=True) \
+                            .range(page*page_size, (page+1)*page_size-1) \
+                            .execute()
+
+                if not response.data:
+                    break
+
+                # Process current page
+                for row in response.data:
+                    try:
+                        json_data = row['data'].replace('""', '"').replace('\\"', '"')
+                        parsed = json.loads(json_data)
+                        
+                        record = {
+                            'report_period': pd.to_datetime(row['report_period']),
+                        }
+                        for col in ESSENTIAL_COLS:
+                            val = parsed.get(col)
+                            record[col] = float(val) if val not in [None, ""] else 0.0
+                        
+                        processed_data.append(record)
+                    except Exception as e:
+                        st.error(f"⚠️ Row error: {str(e)}")
+                        continue
+
+                page += 1
+                if page*page_size >= total_records:
+                    break
 
         df = pd.DataFrame(processed_data)
         return df.sort_values('report_period', ascending=False).drop_duplicates()
+    
     except Exception as e:
-        st.error(f"📊 Data Processing Error: {str(e)}")
+        st.error(f"📊 Data Error: {str(e)}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=CACHE_TTL)
