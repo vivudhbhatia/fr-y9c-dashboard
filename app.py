@@ -18,100 +18,101 @@ def init_supabase():
         st.stop()
 
 # Enhanced pagination with debug logging
-def fetch_paginated_data(table_name, batch_size=500):
+# ... [Keep all imports and the init_supabase function unchanged] ...
+
+# Optimized pagination with smaller batches and timeout handling
+def fetch_paginated_data(table_name, batch_size=300):
     supabase = init_supabase()
     all_data = []
     page = 0
+    retries = 3  # Number of retry attempts
     
     try:
         while True:
-            response = supabase.table(table_name)\
-                         .select("*", count='exact')\
-                         .range(page*batch_size, (page+1)*batch_size-1)\
-                         .execute()
-            
-            st.write(f"Fetched {len(response.data)} records from {table_name}")
-            all_data.extend(response.data)
-            
-            if len(all_data) >= response.count:
-                break
-            page += 1
-            time.sleep(0.2)
-            
+            try:
+                # Get total count first
+                count_query = supabase.table(table_name).select("count", count='exact')
+                total_count = count_query.execute().count
+                
+                # Fetch batch
+                response = supabase.table(table_name)\
+                             .select("*")\
+                             .range(page*batch_size, (page+1)*batch_size-1)\
+                             .execute()
+                
+                all_data.extend(response.data)
+                st.write(f"Fetched {len(response.data)}/{total_count} from {table_name}")
+                
+                if len(all_data) >= total_count:
+                    break
+                page += 1
+                time.sleep(0.3)  # Increased delay
+                
+            except Exception as e:
+                if retries > 0:
+                    st.write(f"Retrying... ({retries} left)")
+                    retries -= 1
+                    time.sleep(1)
+                    continue
+                else:
+                    raise
+
+        return pd.DataFrame(all_data)
+    
     except Exception as e:
         st.error(f"Error fetching {table_name}: {str(e)}")
         st.stop()
-    
-    return pd.DataFrame(all_data)
 
-# Robust data loader with detailed error reporting
+# Optimized data loader with early filtering
 @st.cache_data(ttl=3600, show_spinner="Loading regulatory data...")
 def load_data():
     try:
-        st.write("Starting data load...")
+        st.write("🚀 Starting optimized data load...")
         
-        # Fetch data
-        y9c_df = fetch_paginated_data('y9c_full')
+        # 1. First load essential mapping data
+        st.write("⏳ Loading MDRM mappings...")
         mdrm_df = fetch_paginated_data('mdrm_mapping')
-        st.write(f"Raw y9c data: {y9c_df.shape} rows")
-        st.write(f"Raw mdrm data: {mdrm_df.shape} rows")
+        mdrm_active = mdrm_df[mdrm_df['end_date'] == '9999-12-31']
+        st.write(f"✅ Active mappings: {mdrm_active.shape[0]}")
 
-        # JSON parsing with detailed error handling
-        if not y9c_df.empty and 'data' in y9c_df.columns:
-            def safe_json_parse(x):
-                try:
-                    if not isinstance(x, str):
-                        return {}
-                    cleaned = x.strip('"').replace('\\"', '"')
-                    return ast.literal_eval(cleaned)
-                except Exception as e:
-                    st.write(f"Failed to parse JSON: {x}")
-                    st.write(f"Error: {str(e)}")
-                    return {}
-            
-            y9c_df['metrics'] = y9c_df['data'].apply(safe_json_parse)
-            metrics_df = pd.json_normalize(y9c_df['metrics'])
-            st.write(f"Parsed metrics: {metrics_df.shape} columns")
-            
-            y9c_df = pd.concat([y9c_df.drop(['data', 'metrics'], axis=1), metrics_df], axis=1)
-            st.write(f"Merged y9c data: {y9c_df.shape} rows")
-        else:
-            st.warning("No data found in y9c_full table")
-            return pd.DataFrame(), pd.DataFrame()
-
-        # Validate composite keys
-        required_columns = ['mnemonic', 'item_code', 'bhck2170']
-        missing = [col for col in required_columns if col not in mdrm_df.columns or col not in y9c_df.columns]
-        if missing:
-            st.error(f"Missing columns: {missing}")
-            st.stop()
-
-        # Create composite keys
-        mdrm_df['composite_key'] = mdrm_df['mnemonic'].astype(str).str.strip() + '_' + mdrm_df['item_code'].astype(str).str.strip()
-        y9c_df['composite_key'] = y9c_df['bhck2170'].astype(str).str.strip()
-        st.write("Composite keys created successfully")
-
-        # Merge dataframes
-        merged_df = pd.merge(
-            y9c_df,
-            mdrm_df[mdrm_df['end_date'] == '9999-12-31'],
-            on='composite_key',
-            how='inner',
-            suffixes=('', '_mdrm')
-        )
-        st.write(f"Merged dataset: {merged_df.shape} rows")
-
-        # Date handling
-        merged_df['Report Date'] = pd.to_datetime(merged_df['report_period'], errors='coerce')
-        merged_df = merged_df.dropna(subset=['Report Date'])
-        st.write(f"After date filtering: {merged_df.shape} rows")
+        # 2. Load only recent y9c data
+        st.write("⏳ Loading recent Y9C reports...")
+        y9c_df = fetch_paginated_data('y9c_full')
         
+        # 3. Early filtering of Y9C data
+        y9c_df = y9c_df.dropna(subset=['data'])
+        y9c_df = y9c_df[y9c_df['report_period'] >= '2020-01-01']  # Recent 3 years
+        st.write(f"✅ Filtered Y9C records: {y9c_df.shape[0]}")
+
+        # 4. Parallel JSON parsing
+        st.write("🔨 Parsing JSON metrics...")
+        with st.spinner("Processing financial metrics..."):
+            y9c_df['metrics'] = y9c_df['data'].parallel_apply(
+                lambda x: ast.literal_eval(x.strip('"').replace('\\"', '"'))  # Requires pandarallel
+            metrics_df = pd.json_normalize(y9c_df['metrics'])
+            y9c_df = pd.concat([y9c_df.drop(['data', 'metrics'], axis=1), metrics_df], axis=1)
+
+        # 5. Optimized merging
+        st.write("🔗 Merging datasets...")
+        required_metrics = ['bhck2170', 'bhck2948', 'bhck3210']  # Essential metrics only
+        y9c_filtered = y9c_df[['RSSD ID', 'Report Date'] + required_metrics]
+        
+        merged_df = pd.merge(
+            y9c_filtered,
+            mdrm_active,
+            left_on='bhck2170',
+            right_on='item_code',
+            how='inner'
+        )
+        
+        st.write(f"🎉 Final dataset: {merged_df.shape[0]} rows")
         return merged_df, merged_df
 
     except Exception as e:
-        st.error(f"Critical error in load_data: {str(e)}")
+        st.error(f"Critical error: {str(e)}")
         st.text(traceback.format_exc())
         st.stop()
+
 
 # Formatting function
 def format_metric(value, metric_name):
