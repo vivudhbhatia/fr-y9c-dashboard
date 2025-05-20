@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from supabase import create_client
+from supabase import create_client, Client
 from datetime import datetime
 import json
 import time
@@ -9,17 +9,22 @@ import ast
 import traceback
 import backoff  # Added for advanced retry logic
 
+
+
 # Initialize Supabase Client with timeout
 @st.cache_resource
-def init_supabase():
+def init_supabase() -> Client:
     try:
+        # Verify secrets exist first
+        if not hasattr(st.secrets, 'SUPABASE_URL'):
+            raise ValueError("Missing SUPABASE_URL in secrets")
+        if not hasattr(st.secrets, 'SUPABASE_KEY'):
+            raise ValueError("Missing SUPABASE_KEY in secrets")
+            
+        # Create client with validated secrets
         return create_client(
-            st.secrets.SUPABASE_URL,
-            st.secrets.SUPABASE_KEY,
-            options={
-                'postgrest_client_timeout': 20,  # 20 second timeout
-                'schema': 'public'
-            }
+            supabase_url=st.secrets.SUPABASE_URL,
+            supabase_key=st.secrets.SUPABASE_KEY
         )
     except Exception as e:
         st.error(f"Supabase initialization failed: {str(e)}")
