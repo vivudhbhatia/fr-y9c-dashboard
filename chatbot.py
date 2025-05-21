@@ -1,166 +1,139 @@
-# chatbot.py (updated version)
+# chatbot.py
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from supabase import create_client, ClientOptions
 import openai
-import backoff
 import json
 import time
 
 # Configuration
 ESSENTIAL_COLS = ['bhck2170', 'bhck2948', 'bhck3210']
-CACHE_TTL = 86400
-AI_MODEL = "gpt-4o"
-MAX_PAGES = 10
-PAGE_SIZE = 500
+CACHE_TTL = 86400  # 24 hours cache
+PAGE_SIZE = 200    # Reduced for free tier safety
+MAX_PAGES = 5      # Max 1000 records
 
 def init_supabase():
-    """Initialize Supabase client with better error visibility"""
+    """Initialize Supabase client with error handling"""
     try:
         return create_client(
             st.secrets.SUPABASE_URL,
             st.secrets.SUPABASE_KEY,
             options=ClientOptions(
-                postgrest_client_timeout=60,
-                schema='public',
-                headers={'Content-Type': 'application/json'}
+                postgrest_client_timeout=30,
+                schema='public'
             )
         )
     except Exception as e:
         st.error(f"🔌 Connection Error: {str(e)}")
         st.stop()
 
-@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
-@backoff.on_exception(backoff.expo, Exception, max_tries=3)
-def fetch_financial_data():
-    """Enhanced data loader with better feedback"""
+def load_financial_data():
+    """Simplified data loader with better error handling"""
     try:
         supabase = init_supabase()
         processed_data = []
         
-        # Initial loading message
-        load_placeholder = st.empty()
-        load_placeholder.markdown("🚀 Initializing data connection...")
-        
-        # Get total count
-        try:
-            count_res = supabase.table('y9c_full').select('count', count='exact').execute()
-            total_records = count_res.count or 0
-            load_placeholder.markdown(f"📦 Found {total_records} records to process...")
-        except Exception as e:
-            load_placeholder.error(f"🔢 Count Error: {str(e)}")
-            return pd.DataFrame()
-
+        st.info("🔍 Connecting to database...")
         progress_bar = st.progress(0)
         status_text = st.empty()
 
         for page in range(MAX_PAGES):
             try:
-                status_text.markdown(f"📥 Downloading page {page+1}/{MAX_PAGES}...")
+                status_text.text(f"📥 Loading page {page+1}/{MAX_PAGES}...")
+                
+                # Simple query without range for free tier compatibility
                 response = supabase.table('y9c_full') \
                             .select('data,report_period') \
                             .order('report_period', desc=True) \
-                            .range(page*PAGE_SIZE, (page+1)*PAGE_SIZE-1) \
+                            .limit(PAGE_SIZE) \
                             .execute()
 
-                # Show raw response status
-                st.write(f"🔍 Page {page+1} response status: {response.status_code}")
-
                 if not response.data:
-                    status_text.markdown("🏁 Reached end of data")
                     break
 
-                # Process batch
-                batch = []
-                for idx, row in enumerate(response.data):
+                # Process data
+                for row in response.data:
                     try:
-                        data_str = row['data'].replace('""', '"').replace('\\"', '"')
-                        parsed = json.loads(data_str)
-                        batch.append({
+                        clean_data = row['data'].replace('""', '"')
+                        parsed = json.loads(clean_data)
+                        processed_data.append({
                             'report_period': pd.to_datetime(row['report_period']),
-                            **{col: float(parsed.get(col, 0)) for col in ESSENTIAL_COLS}
+                            'assets': float(parsed.get('bhck2170', 0)),
+                            'liabilities': float(parsed.get('bhck2948', 0)),
+                            'equity': float(parsed.get('bhck3210', 0))
                         })
-                    except json.JSONDecodeError:
-                        st.error(f"⚠️ JSON error in row {idx} of page {page+1}")
-                        continue
                     except Exception as e:
-                        st.error(f"⚠️ Processing error in row {idx}: {str(e)}")
                         continue
                 
-                processed_data.extend(batch)
-                progress = min((page+1)/MAX_PAGES, 1.0)
+                progress = (page + 1) / MAX_PAGES
                 progress_bar.progress(progress)
-                
-                if len(response.data) < PAGE_SIZE:
-                    status_text.markdown("🏁 Reached end of data")
-                    break
-
-                time.sleep(1)
+                time.sleep(1)  # Rate limiting
 
             except Exception as e:
-                st.error(f"🚨 Page {page+1} error: {str(e)}")
+                st.error(f"⚠️ Error loading page {page+1}: {str(e)}")
                 break
 
         progress_bar.empty()
         status_text.empty()
-        load_placeholder.empty()
         
         if not processed_data:
-            st.error("❌ No data loaded - check database connection")
+            st.error("❌ No data loaded - check database connection and data format")
             return pd.DataFrame()
         
-        df = pd.DataFrame(processed_data).drop_duplicates()
-        st.write(f"✅ Successfully loaded {len(df)} records")
-        return df.sort_values('report_period', ascending=False)
+        return pd.DataFrame(processed_data).drop_duplicates()
     
     except Exception as e:
-        st.error(f"🚨 Critical Data Error: {str(e)}")
+        st.error(f"🚨 Critical Error: {str(e)}")
         return pd.DataFrame()
 
 def main():
-    st.set_page_config(page_title="Banking Analytics", layout="wide")
+    st.set_page_config(page_title="Banking Analytics", layout="centered")
     st.title("🏦 Banking Analytics Dashboard")
     
     try:
-        # Initialize clients
-        supabase = init_supabase()
-        openai.api_key = st.secrets.OPENAI_API_KEY
+        # Load data first
+        df = load_financial_data()
         
-        # Load data with visible feedback
-        df = fetch_financial_data()
-        
-        # Always show data status
-        with st.expander("🔍 Data Status"):
-            if df.empty:
-                st.error("No data available")
+        # Always show status
+        with st.expander("🔍 Data Connection Status", expanded=True):
+            if not df.empty:
+                st.success(f"✅ Loaded {len(df)} records")
+                st.write("Latest data preview:")
+                st.dataframe(df.head(3))
+                st.write(f"Date range: {df['report_period'].min().date()} to {df['report_period'].max().date()}")
             else:
-                st.write(f"📅 Date Range: {df['report_period'].min().date()} to {df['report_period'].max().date()}")
-                st.write(f"📊 Total Records: {len(df)}")
-                st.write("Sample Data:", df.head(3))
+                st.error("❌ No data available")
+                st.write("Troubleshooting steps:")
+                st.write("1. Check Supabase connection secrets")
+                st.write("2. Verify 'y9c_full' table exists")
+                st.write("3. Ensure 'data' column contains valid JSON")
+                return
         
         # Main analysis UI
+        st.subheader("📈 Quick Analysis")
+        selected_metric = st.selectbox("Choose metric", ['assets', 'liabilities', 'equity'])
+        
         if not df.empty:
-            with st.expander("📈 Quick Analysis"):
-                st.line_chart(df.set_index('report_period')[ESSENTIAL_COLS])
+            fig, ax = plt.subplots()
+            df.set_index('report_period')[selected_metric].plot(ax=ax)
+            st.pyplot(fig)
             
-            query = st.text_input("Ask for detailed analysis:", placeholder="Compare assets vs liabilities...")
-            
-            if query:
-                with st.spinner("Analyzing..."):
+            with st.expander("Advanced Analysis"):
+                query = st.text_input("Ask a question about the data:")
+                if query:
                     try:
                         response = openai.chat.completions.create(
-                            model=AI_MODEL,
+                            model="gpt-4o",
                             messages=[{
                                 "role": "user",
-                                "content": f"""Analyze banking metrics:
-                                {df.describe().to_markdown()}
-                                User Question: {query}"""
-                            }],
-                            temperature=0.3,
-                            max_tokens=500
+                                "content": f"""Analyze these banking metrics:
+                                - Latest Assets: ${df['assets'].iloc[0]:,.0f}
+                                - Latest Liabilities: ${df['liabilities'].iloc[0]:,.0f}
+                                - Latest Equity: ${df['equity'].iloc[0]:,.0f}
+                                Question: {query}"""
+                            }]
                         )
-                        st.write("📝 Analysis Results:")
                         st.write(response.choices[0].message.content)
                     except Exception as e:
                         st.error(f"🤖 AI Error: {str(e)}")
