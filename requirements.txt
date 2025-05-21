@@ -10,6 +10,7 @@ supabase
 matplotlib
 openai
 backoff
+json
 
 
 streamlit>=1.45.1
